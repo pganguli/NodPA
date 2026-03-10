@@ -319,7 +319,7 @@ void check_nvm_write_address_impl(uint32_t nvm_offset, size_t n) {
 }
 
 void dump_footprints(uint16_t layer_idx) {
-#if (DYNAMIC_DNN_APPROACH == DYNAMIC_DNN_MULTIPLE_INDICATORS_BASIC || DYNAMIC_DNN_APPROACH == DYNAMIC_DNN_MULTIPLE_INDICATORS) && MY_DEBUG >= MY_DEBUG_VERBOSE
+#if HAWAII && (DYNAMIC_DNN_APPROACH == DYNAMIC_DNN_MULTIPLE_INDICATORS_BASIC || DYNAMIC_DNN_APPROACH == DYNAMIC_DNN_MULTIPLE_INDICATORS) && MY_DEBUG >= MY_DEBUG_VERBOSE
     for (uint8_t copy_id = 0; copy_id < 2; copy_id++) {
         Footprint tmp_footprint;
 
