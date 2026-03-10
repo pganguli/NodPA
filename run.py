@@ -59,8 +59,6 @@ class Runner(ABC):
         raise NotImplementedError
 
     def run(self, model: str, power: str) -> None:
-        self.configure_project()
-
         for model in model.split(','):
             with_preservation = True
             variant, model = model.split('-', maxsplit=1)
