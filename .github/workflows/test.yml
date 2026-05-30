@@ -11,15 +11,14 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
-        token: ${{ secrets.stateful_cnn_access_token }}
         submodules: recursive
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v6
       with:
-        python-version: 3.9
+        python-version: 3.11
         cache: pip
 
     - name: Add msbuild to PATH
