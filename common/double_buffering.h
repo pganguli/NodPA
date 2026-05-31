@@ -26,6 +26,14 @@ uint8_t* copy_id_cache_addr(void) {
     return nullptr;
 }
 
+#if HAWAII
+// Specialization defined in platform.cpp
+// Declaration prevents implicit instantiation in other translation units,
+// which causes conflicting symbols in MSVC
+template<>
+uint8_t* copy_id_cache_addr<Footprint>(void);
+#endif
+
 template<typename T>
 static uint8_t get_newer_copy_id(uint16_t data_idx) {
     uint8_t* copy_id_cache = copy_id_cache_addr<T>();
