@@ -205,7 +205,7 @@ SECTIONS
         .jtagpassword       : {}            /* JTAG Password                     */
     } > IPESIGNATURE
 
-    .bss        : {} > RAM type=NOINIT      /* Global & static vars              */
+    .bss        : {} > RAM                  /* Global & static vars              */
     .data       : {} > RAM                  /* Global & static vars              */
     .TI.noinit  : {} > RAM                  /* For #pragma noinit                */
     .nvm        : {} > FRAM type=NOINIT

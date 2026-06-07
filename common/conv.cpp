@@ -91,9 +91,9 @@ static void convTask(int16_t cur_input_h, const ConvLayerDimensions* layer_dims,
              output_w = (conv_params->input_w - conv_params->input_w_first) / layer_dims->STRIDE_W;
     // use NWHC so that output is written continuously on the address space
     uint32_t cur_output_data_offset =
-             layer_dims->OUTPUT_W * layer_dims->OUTPUT_H * (conv_params->input_tile_c_index * layer_dims->OUTPUT_CHANNEL) +  // n
-             output_w * layer_dims->OUTPUT_H * layer_dims->OUTPUT_CHANNEL +                                                   // w
-             output_h * layer_dims->OUTPUT_CHANNEL +                                                                           // h
+             static_cast<uint32_t>(layer_dims->OUTPUT_W) * layer_dims->OUTPUT_H * (conv_params->input_tile_c_index * layer_dims->OUTPUT_CHANNEL) +  // n
+             static_cast<uint32_t>(output_w) * layer_dims->OUTPUT_H * layer_dims->OUTPUT_CHANNEL +                                                   // w
+             static_cast<uint32_t>(output_h) * layer_dims->OUTPUT_CHANNEL +                                                                           // h
              channel_offset_c;                                                                                                  // c
 
     int16_t * const matrix_mpy_results = lea_buffer + LEA_BUFFER_SIZE - OUTPUT_LEN - conv_params->pState_len;
@@ -474,7 +474,7 @@ void alloc_conv(Model *model, const ParameterInfo *input[], ParameterInfo *outpu
     my_printf_debug("input_tile_c=%d, output_tile_c=%d" NEWLINE, conv_params->input_tile_c, conv_params->flags->conv.output_tile_c);
 
     /* XXX: extend flags; assume dilation=(1, 1) for now */
-    output->params_len = conv_params->n_tiles_c * layer_dims->OUTPUT_H * layer_dims->OUTPUT_W * OUTPUT_CHANNEL * sizeof(int16_t);
+    output->params_len = static_cast<uint32_t>(conv_params->n_tiles_c) * layer_dims->OUTPUT_H * layer_dims->OUTPUT_W * OUTPUT_CHANNEL * sizeof(int16_t);
     output->dims[0] = 1;
     output->dims[1] = OUTPUT_CHANNEL;
     output->dims[2] = layer_dims->OUTPUT_H;
@@ -627,7 +627,7 @@ void handle_conv(Model *model, const ParameterInfo *input[], ParameterInfo *outp
 
     // recalculate n_tiles_c, as tile sizes may be changed during dynamic reconfiguration
     conv_params->n_tiles_c = upper_gauss(CHANNEL, conv_params->input_tile_c);
-    output->params_len = conv_params->n_tiles_c * layer_dims->OUTPUT_H * layer_dims->OUTPUT_W * layer_dims->OUTPUT_CHANNEL * sizeof(int16_t);
+    output->params_len = static_cast<uint32_t>(conv_params->n_tiles_c) * layer_dims->OUTPUT_H * layer_dims->OUTPUT_W * layer_dims->OUTPUT_CHANNEL * sizeof(int16_t);
 
     int16_t input_channels = conv_filter->dims[1];
 
@@ -793,7 +793,7 @@ void handle_conv(Model *model, const ParameterInfo *input[], ParameterInfo *outp
         conv_params->input_tile_c_index++;
     }
 
-    output->params_len = conv_params->input_tile_c_index * layer_dims->OUTPUT_H * layer_dims->OUTPUT_W * layer_dims->OUTPUT_CHANNEL * sizeof(int16_t);
+    output->params_len = static_cast<uint32_t>(conv_params->input_tile_c_index) * layer_dims->OUTPUT_H * layer_dims->OUTPUT_W * layer_dims->OUTPUT_CHANNEL * sizeof(int16_t);
 
 #if ENABLE_DEMO_COUNTERS
     if (need_reset() && !model->run_counter) {
