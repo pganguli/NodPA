@@ -1,12 +1,12 @@
 [submodule "models/deep-learning-HAR"]
 	path = dnn-models/deep-learning-HAR
-	url = ../deep-learning-HAR.git
+	url = https://github.com/EMCLab-Sinica/deep-learning-HAR.git
 [submodule "Tools"]
 	path = tools
-	url = ../Tools.git
+	url = https://github.com/EMCLab-Sinica/Tools.git
 [submodule "TI-DSPLib"]
 	path = TI-DSPLib
-	url = ../DSPLib.git
+	url = https://github.com/EMCLab-Sinica/DSPLib.git
 [submodule "ARM-CMSIS"]
 	path = ARM-CMSIS
-	url = ../ARM-CMSIS.git
+	url = https://github.com/EMCLab-Sinica/ARM-CMSIS.git
