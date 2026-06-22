@@ -31,12 +31,12 @@ Output feature maps from the Intermittent CNN simulator and ONNX runtime Python 
 Those .pb files can then be compared to identify possible accuracy issues. For example,
 
 ```
-$ python3 dnn-models/transform.py --target msp432 --ideal har
-$ cmake -B build -S . -D MY_DEBUG=2 -D USE_PROTOBUF=ON
-$ make -C build
-$ ./build/intermittent-cnn -r 1 -s ~/tmp/har-cpp.pb
-$ python3 exp/original_model_run.py --save-file ~/tmp/har-py.pb --limit 1 har
-$ python3 exp/compare-model-output.py --baseline ~/tmp/har-py.pb --target ~/tmp/har-cpp.pb --topk 10
+python3 dnn-models/transform.py --target msp432 --ideal har
+cmake -B build -S . -D MY_DEBUG=2 -D USE_PROTOBUF=ON
+make -C build
+./build/intermittent-cnn -r 1 -s ~/tmp/har-cpp.pb
+python3 exp/original_model_run.py --save-file ~/tmp/har-py.pb --limit 1 har
+python3 exp/compare-model-output.py --baseline ~/tmp/har-py.pb --target ~/tmp/har-cpp.pb --topk 10
 ```
 
 In this example, `exp/compare-model-output.py` compares output feature maps in `~/tmp/har-cpp.pb` against `~/tmp/har-py.pb` and lists values with top 10 relative errors in each OFM.
@@ -48,15 +48,15 @@ There are two approaches to check correctness of intermittent execution - power 
 `exp/run-intermittently.py` handles both approaches. For the first approach, `--interval` can be used. It's recommended to build the simulator with the higest debug level (e.g., `-D MY_DEBUG=3`) so that there are many power failures in each end-to-end inference. For example,
 
 ```
-$ cmake -B build -S . -D MY_DEBUG=3
-$ make -C build
-$ rm -vf nvm.bin && python3 exp/run-intermittently.py  --rounds 100 --interval 0.02 ./build/intermittent-cnn
+cmake -B build -S . -D MY_DEBUG=3
+make -C build
+rm -vf nvm.bin && python3 exp/run-intermittently.py  --rounds 100 --interval 0.02 ./build/intermittent-cnn
 ```
 
 For the second approach, `--shutdown-after-writes` can be used. A shell loop can be combined with this approach to test all possible power failures. For example,
 
 ```
-$ for i in {1..100000..10}; do echo $i; rm -vf nvm.bin && python3 exp/run-intermittently.py ./build/intermittent-cnn --rounds 1 --shutdown-after-writes $i ; done
+for i in {1..100000..10}; do echo $i; rm -vf nvm.bin && python3 exp/run-intermittently.py ./build/intermittent-cnn --rounds 1 --shutdown-after-writes $i ; done
 ```
 
 For both approach, log files are available as `/tmp/intermittent-cnn-*`.

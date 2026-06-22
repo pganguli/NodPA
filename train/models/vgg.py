@@ -1,19 +1,72 @@
+"""
+VGG-style CNN for CIFAR-10 image classification.
+
+defaultcfg: layer specifications for VGG-11/13/16/19; each entry is a
+  channel count or 'M' (MaxPool).  The make_layers() builder converts these
+  to a Sequential module used by VGG.__init__.
+"""
+
 import math
 import torch.nn as nn
 
 
 defaultcfg = {
-    11 : [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],
-    13 : [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512],
-    16 : [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512],
-    19 : [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512],
+    11: [64, "M", 128, "M", 256, 256, "M", 512, 512, "M", 512, 512],
+    13: [64, 64, "M", 128, 128, "M", 256, 256, "M", 512, 512, "M", 512, 512],
+    16: [
+        64,
+        64,
+        "M",
+        128,
+        128,
+        "M",
+        256,
+        256,
+        256,
+        "M",
+        512,
+        512,
+        512,
+        "M",
+        512,
+        512,
+        512,
+    ],
+    19: [
+        64,
+        64,
+        "M",
+        128,
+        128,
+        "M",
+        256,
+        256,
+        256,
+        256,
+        "M",
+        512,
+        512,
+        512,
+        512,
+        "M",
+        512,
+        512,
+        512,
+        512,
+    ],
 }
 
 
 class ConvBNReLU(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, padding=0, bias=False):
         super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, bias=bias)
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            padding=padding,
+            bias=bias,
+        )
         self.bn = nn.BatchNorm2d(out_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -37,10 +90,12 @@ class CifarVGG(nn.Module):
         layers = []
         in_channels = 3
         for v in cfg:
-            if v == 'M':
+            if v == "M":
                 layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             else:
-                layers += [ConvBNReLU(in_channels, v, kernel_size=3, padding=1, bias=False)]
+                layers += [
+                    ConvBNReLU(in_channels, v, kernel_size=3, padding=1, bias=False)
+                ]
                 in_channels = v
         return nn.Sequential(*layers)
 
@@ -55,7 +110,7 @@ class CifarVGG(nn.Module):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
                 if m.bias is not None:
                     m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
@@ -68,6 +123,7 @@ class CifarVGG(nn.Module):
 
 def cifar_vgg16_bn(num_classes):
     return CifarVGG(16, num_classes)
+
 
 def cifar_vgg19_bn(num_classes):
     return CifarVGG(19, num_classes)

@@ -1,3 +1,14 @@
+#!/usr/bin/env python3
+"""
+Parse TeraTerm serial logs from real-device intermittent-inference experiments.
+
+Reads timestamped log lines produced by the monitoring board (CC1352), accumulates
+per-inference latency and recharging time, and prints average latency / active time
+over the requested number of inferences.
+
+Usage: python exp/parse-intermittent-inference-logs.py --log-filename FILE --num-inferences N
+"""
+
 import argparse
 import contextlib
 import datetime
@@ -18,17 +29,42 @@ VALID_ACTIVE_TIME_THRESHOLD_MILLISECONDS = 100
 # EXTRA_POWER_ON_TIME = 45
 EXTRA_POWER_ON_TIME = 0
 
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--log-filename', required=True)
-    parser.add_argument('--num-inferences', type=int, required=True)
-    parser.add_argument('--follow', action=argparse.BooleanOptionalAction)
-    parser.add_argument('--continuous-power', action=argparse.BooleanOptionalAction)
+    parser = argparse.ArgumentParser(
+        description="Parse TeraTerm serial logs from real-device intermittent-inference experiments."
+    )
+    parser.add_argument(
+        "--log-filename",
+        required=True,
+        help="Path to the raw TeraTerm log file (*.log or *-raw.log)",
+    )
+    parser.add_argument(
+        "--num-inferences",
+        type=int,
+        required=True,
+        help="Number of inferences to collect before reporting averages",
+    )
+    parser.add_argument(
+        "--follow",
+        action=argparse.BooleanOptionalAction,
+        help="Keep reading the log file as it grows (useful for live monitoring)",
+    )
+    parser.add_argument(
+        "--continuous-power",
+        action=argparse.BooleanOptionalAction,
+        help="Treat the run as continuous-power (skip inferences with power failures)",
+    )
     args = parser.parse_args()
 
     initial_timestamp = None
 
-    with open(args.log_filename, 'r') as log_file, open(args.log_filename.replace('-raw.log', '.log'), 'w') if args.log_filename.endswith('-raw.log') else contextlib.nullcontext() as filtered_log_file:
+    with (
+        open(args.log_filename, "r") as log_file,
+        open(args.log_filename.replace("-raw.log", ".log"), "w")
+        if args.log_filename.endswith("-raw.log")
+        else contextlib.nullcontext() as filtered_log_file,
+    ):
         active_times = []
         inference_latencies = []
         accumulated_recharging_time = 0
@@ -36,13 +72,13 @@ def main():
         power_failures = []
         first_inference_dropped = False
 
-        current_line = ''
+        current_line = ""
 
         while True:
             line = log_file.readline()
             # collect incomplete lines, as readline may not read a full line
             # when the last line is not fully written to the log file
-            if '\n' not in line:
+            if "\n" not in line:
                 current_line += line
                 try:
                     time.sleep(1)
@@ -50,16 +86,18 @@ def main():
                     break
                 continue
             line = (current_line + line).strip()
-            current_line = ''
+            current_line = ""
 
-            if ']' not in line:
-                print(f'WARNING: found corrupted output line {repr(line)}')
+            if "]" not in line:
+                print(f"WARNING: found corrupted output line {repr(line)}")
                 continue
 
             original_line = line
 
-            timestamp, line = line.split(']')
-            timestamp = datetime.datetime.strptime(timestamp.removeprefix('['), '%Y-%m-%d %H:%M:%S.%f')
+            timestamp, line = line.split("]")
+            timestamp = datetime.datetime.strptime(
+                timestamp.removeprefix("["), "%Y-%m-%d %H:%M:%S.%f"
+            )
 
             if not initial_timestamp:
                 initial_timestamp = timestamp
@@ -68,16 +106,16 @@ def main():
                 continue
 
             line = line.strip()
-            if line.startswith('.'):
+            if line.startswith("."):
                 line = line[1:]
-                if ' ' not in line:
-                    print(f'WARNING: found corrupted output line {repr(line)}')
+                if " " not in line:
+                    print(f"WARNING: found corrupted output line {repr(line)}")
                     continue
 
-                counter, power_failure = line.split(' ')
+                counter, power_failure = line.split(" ")
                 cur_inference_latency = int(counter)
                 # print(f'Cur inference latency: {cur_inference_latency}')
-                power_failure = int(power_failure.removeprefix('PF='))
+                power_failure = int(power_failure.removeprefix("PF="))
 
                 cur_active_time = cur_inference_latency - accumulated_recharging_time
 
@@ -92,7 +130,7 @@ def main():
 
                 if not found_new_inference:
                     if inference_latencies:
-                        print(f'WARNING: Skip invalid latency {cur_inference_latency}')
+                        print(f"WARNING: Skip invalid latency {cur_inference_latency}")
 
                 if found_new_inference:
                     inference_latencies.append(cur_inference_latency)
@@ -121,21 +159,32 @@ def main():
                     continue
 
                 if filtered_log_file:
-                    filtered_line = original_line.replace(' .', ' Latency=').replace(' PF=', ', PF=') + f', AT={active_times[-1]}'
-                    filtered_log_file.write(filtered_line + '\n')
+                    filtered_line = (
+                        original_line.replace(" .", " Latency=").replace(
+                            " PF=", ", PF="
+                        )
+                        + f", AT={active_times[-1]}"
+                    )
+                    filtered_log_file.write(filtered_line + "\n")
 
                 if len(inference_latencies) >= args.num_inferences:
-                    average_latency = statistics.mean(inference_latencies[-args.num_inferences:])
-                    print(f'Found {len(inference_latencies)} inferences. Average latency for the last {args.num_inferences} = {(average_latency / 1000):.4f} seconds')
+                    average_latency = statistics.mean(
+                        inference_latencies[-args.num_inferences :]
+                    )
+                    print(
+                        f"Found {len(inference_latencies)} inferences. Average latency for the last {args.num_inferences} = {(average_latency / 1000):.4f} seconds"
+                    )
                     if not args.follow:
                         break
                 else:
-                    print(f'Found {len(inference_latencies)} inferences. Needs {args.num_inferences - len(inference_latencies)}')
-            elif line.startswith('R'):
+                    print(
+                        f"Found {len(inference_latencies)} inferences. Needs {args.num_inferences - len(inference_latencies)}"
+                    )
+            elif line.startswith("R"):
                 try:
                     cur_recharge_time = int(line[1:])
                 except ValueError:
-                    print(f'Invalid line for recharging time: {repr(line)}')
+                    print(f"Invalid line for recharging time: {repr(line)}")
                     continue
                 # print(cur_recharge_time)
 
@@ -148,14 +197,19 @@ def main():
                 accumulated_recharging_time += cur_recharge_time
 
         # print(f'Short recharging cycles: {short_recharging_cycles}')
-        print('Inference latencies: ' + ' '.join(map(str, inference_latencies)))
-        print('Active times: ' + ' '.join(map(str, active_times)))
-        print('Power failures: ' + ' '.join(map(str, power_failures)))
-        final_average_latency = statistics.mean(inference_latencies[-args.num_inferences:]) / 1000
-        final_average_active_time = statistics.mean(active_times[-args.num_inferences:]) / 1000
-        print(f'Average latency={final_average_latency:.4f} seconds')
-        print(f'Average active time={final_average_active_time:.4f} seconds')
+        print("Inference latencies: " + " ".join(map(str, inference_latencies)))
+        print("Active times: " + " ".join(map(str, active_times)))
+        print("Power failures: " + " ".join(map(str, power_failures)))
+        final_average_latency = (
+            statistics.mean(inference_latencies[-args.num_inferences :]) / 1000
+        )
+        final_average_active_time = (
+            statistics.mean(active_times[-args.num_inferences :]) / 1000
+        )
+        print(f"Average latency={final_average_latency:.4f} seconds")
+        print(f"Average active time={final_average_active_time:.4f} seconds")
         print()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

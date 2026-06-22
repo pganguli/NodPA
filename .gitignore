@@ -1,6 +1,13 @@
+# Python environment and caches
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
 # built files
 *.o
-*.pyc
 /build/
 /build-windows/
 /dnn-models/parse_model/external/*.pb-c.*
@@ -17,6 +24,8 @@
 # See also https://github.com/github/gitignore/blob/main/Global/Eclipse.gitignore
 .launches/
 .settings/
+Debug/
+Release/
 /msp430/Large_Data/
 /msp432/Debug__GNU/
 

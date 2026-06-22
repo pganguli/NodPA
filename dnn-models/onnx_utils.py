@@ -1,13 +1,21 @@
+"""
+ONNX quantization annotation and parameter-scale utilities.
+
+Attaches per-tensor Q15 scale factors to the ONNX graph as quantization
+annotations, and provides helpers for looking up initializers and tensor shapes.
+"""
+
 from typing import Optional
 
 import onnx
 import onnx.numpy_helper
 import numpy as np
 
+
 def add_tensor_annotation(onnx_model, key, tensor_name, data_type, vals):
     mapping = onnx.StringStringEntryProto()
     mapping.key = key
-    mapping.value = f'{tensor_name}.{key}'
+    mapping.value = f"{tensor_name}.{key}"
 
     annotation = onnx.TensorAnnotation()
     annotation.tensor_name = tensor_name
@@ -16,9 +24,14 @@ def add_tensor_annotation(onnx_model, key, tensor_name, data_type, vals):
     onnx_model.graph.quantization_annotation.append(annotation)
 
     vals = np.array(vals)
-    tensor = onnx.helper.make_tensor(name=mapping.value, data_type=data_type,
-                                     dims=np.shape(vals), vals=vals.flatten())
+    tensor = onnx.helper.make_tensor(
+        name=mapping.value,
+        data_type=data_type,
+        dims=np.shape(vals),
+        vals=vals.flatten(),
+    )
     onnx_model.graph.initializer.append(tensor)
+
 
 def find_tensor_annotation(onnx_model: onnx.ModelProto, key: str, tensor_name: str):
     for tensor_annotation in onnx_model.graph.quantization_annotation:
@@ -27,7 +40,10 @@ def find_tensor_annotation(onnx_model: onnx.ModelProto, key: str, tensor_name: s
         for mapping in tensor_annotation.quant_parameter_tensor_names:
             if key != mapping.key:
                 continue
-            return onnx.numpy_helper.to_array(find_initializer(onnx_model, mapping.value))
+            return onnx.numpy_helper.to_array(
+                find_initializer(onnx_model, mapping.value)
+            )
+
 
 def list_tensors_for_annotations(onnx_model: onnx.ModelProto):
     referenced_tensors = []
@@ -36,21 +52,27 @@ def list_tensors_for_annotations(onnx_model: onnx.ModelProto):
             referenced_tensors.append(mapping.value)
     return referenced_tensors
 
-def find_initializer(onnx_model: onnx.ModelProto, name: str) -> Optional[onnx.TensorProto]:
+
+def find_initializer(
+    onnx_model: onnx.ModelProto, name: str
+) -> Optional[onnx.TensorProto]:
     for initializer in onnx_model.graph.initializer:
         if initializer.name == name:
             return initializer
 
+
 def get_sample_size(onnx_model: onnx.ModelProto) -> tuple[int, int]:
     return tuple(dims_from_value_info(onnx_model.graph.input[0]))
+
 
 def dims_from_value_info(value_info: onnx.ValueInfoProto):
     shape = value_info.type.tensor_type.shape
     dims = []
     for dim in shape.dim[1:]:  # The first dimension is the batch size
-        assert dim.WhichOneof('value') == 'dim_value'
+        assert dim.WhichOneof("value") == "dim_value"
         dims.append(dim.dim_value)
     return dims
+
 
 def get_param_limit(model: onnx.ModelProto, node: onnx.NodeProto):
     param_limit = 1
@@ -58,12 +80,20 @@ def get_param_limit(model: onnx.ModelProto, node: onnx.NodeProto):
         initializer = find_initializer(model, input_)
         if initializer is None:
             continue
-        param_limit = max(param_limit, np.max(np.abs(onnx.numpy_helper.to_array(initializer))))
+        param_limit = max(
+            param_limit, np.max(np.abs(onnx.numpy_helper.to_array(initializer)))
+        )
     return param_limit
+
 
 def compute_parameter_scales(onnx_model: onnx.ModelProto):
     for node in onnx_model.graph.node:
-        if node.op_type not in ('Conv', 'Gemm', 'MatMul', 'Gather'):
+        if node.op_type not in ("Conv", "Gemm", "MatMul", "Gather"):
             continue
-        add_tensor_annotation(onnx_model, key='Q15_SCALE_TENSOR', tensor_name=node.output[0],
-                              data_type=onnx.TensorProto.DataType.FLOAT, vals=get_param_limit(onnx_model, node))
+        add_tensor_annotation(
+            onnx_model,
+            key="Q15_SCALE_TENSOR",
+            tensor_name=node.output[0],
+            data_type=onnx.TensorProto.DataType.FLOAT,
+            vals=get_param_limit(onnx_model, node),
+        )

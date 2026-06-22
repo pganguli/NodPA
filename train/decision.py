@@ -1,3 +1,21 @@
+"""
+Dynamic channel-pruning decision heads and gating logic.
+
+TorchGraph: a lightweight named-list registry used to wire intermediate
+  activations between backbone layers and decision heads during the forward
+  pass.  The `persistence` flag keeps a tensor list across calls (e.g., for
+  multi-scale feature aggregation) while non-persistent lists are cleared
+  before each forward pass.
+
+DecisionUnit: a per-layer soft gate that learns whether to skip (prune) an
+  output channel group.  During training it uses the Gumbel-softmax
+  (RelaxedOneHotCategorical) to keep the gate differentiable; at export/
+  inference time it is replaced by a hard argmax threshold.
+
+The decision outputs are used by apply_dynamic_channel_pruning() in
+model_utils.py to encode the pruning mask in the ONNX graph.
+"""
+
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
@@ -30,15 +48,22 @@ class TorchGraph(object):
 
 
 default_graph = TorchGraph()
-default_graph.add_tensor_list('head_params', True)
-default_graph.add_tensor_list('gate_params', True)
-default_graph.add_tensor_list('sampled_actions')
-default_graph.add_tensor_list('selected_channels')
-default_graph.add_tensor_list('temperature', True)
+default_graph.add_tensor_list("head_params", True)
+default_graph.add_tensor_list("gate_params", True)
+default_graph.add_tensor_list("sampled_actions")
+default_graph.add_tensor_list("selected_channels")
+default_graph.add_tensor_list("temperature", True)
 
 
 class DecisionHead(nn.Module):
-    def __init__(self, in_channels, out_channels, action_num, deterministic=False, pruning_threshold=0):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        action_num,
+        deterministic=False,
+        pruning_threshold=0,
+    ):
         super(DecisionHead, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -98,10 +123,10 @@ def replace_func(model, module_type, func):
 
 def collect_params(m):
     for p in m.head_params():
-        default_graph.append_tensor('head_params', p)
+        default_graph.append_tensor("head_params", p)
 
     for p in m.gate_params():
-        default_graph.append_tensor('gate_params', p)
+        default_graph.append_tensor("gate_params", p)
 
 
 def set_deterministic_value(m, deterministic):
@@ -117,9 +142,7 @@ def set_pruning_threshold(m, pruning_threshold):
 
 
 def init_decision_convbn(m, action_num):
-    m.decision_head = DecisionHead(
-        m.conv.in_channels, m.conv.out_channels, action_num
-    )
+    m.decision_head = DecisionHead(m.conv.in_channels, m.conv.out_channels, action_num)
 
 
 def decision_convbn_forward(self, x):
@@ -128,13 +151,12 @@ def decision_convbn_forward(self, x):
     if self.conv.in_channels > 3:
         sampled_actions, selected_channels = self.decision_head(x)
 
-        default_graph.append_tensor('sampled_actions', sampled_actions)
-        default_graph.append_tensor('selected_channels', selected_channels)
+        default_graph.append_tensor("sampled_actions", sampled_actions)
+        default_graph.append_tensor("selected_channels", selected_channels)
 
         out = selected_channels.unsqueeze(2).unsqueeze(3) * out
     out = self.relu(out)
     return out
-
 
 
 def init_decision_conv_block(m, action_num):
@@ -142,13 +164,14 @@ def init_decision_conv_block(m, action_num):
         m.conv1.in_channels, m.conv1.out_channels, action_num
     )
 
+
 def decision_conv_block_forward(self, x):
     out = self.conv1(x)
 
     sampled_actions, selected_channels = self.decision_head(x)
 
-    default_graph.append_tensor('sampled_actions', sampled_actions)
-    default_graph.append_tensor('selected_channels', selected_channels)
+    default_graph.append_tensor("sampled_actions", sampled_actions)
+    default_graph.append_tensor("selected_channels", selected_channels)
 
     out = selected_channels.unsqueeze(2).unsqueeze(3) * out
     out = self.relu1(out)
@@ -157,7 +180,6 @@ def decision_conv_block_forward(self, x):
     out = self.relu2(out)
 
     return out
-
 
 
 def init_decision_basicblock(m, action_num):
@@ -169,8 +191,8 @@ def init_decision_basicblock(m, action_num):
 def decision_basicblock_forward(self, x):
     sampled_actions, selected_channels = self.decision_head(x)
 
-    default_graph.append_tensor('sampled_actions', sampled_actions)
-    default_graph.append_tensor('selected_channels', selected_channels)
+    default_graph.append_tensor("sampled_actions", sampled_actions)
+    default_graph.append_tensor("selected_channels", selected_channels)
 
     out = self.conv1(x)
     out = self.bn1(out)
@@ -181,7 +203,6 @@ def decision_basicblock_forward(self, x):
     out += self.shortcut(x)
     out = F.relu(out)
     return out
-
 
 
 def init_decision_bottleneck(m, action_num):
@@ -198,8 +219,8 @@ def decision_bottleneck_forward(self, x):
 
     sampled_actions, selected_channels = self.decision_head(out)
 
-    default_graph.append_tensor('sampled_actions', sampled_actions)
-    default_graph.append_tensor('selected_channels', selected_channels)
+    default_graph.append_tensor("sampled_actions", sampled_actions)
+    default_graph.append_tensor("selected_channels", selected_channels)
 
     out = self.conv1(out)
 
