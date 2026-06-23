@@ -315,7 +315,7 @@ RP2040 bridge. On Linux this is typically `/dev/ttyACM0`; on macOS `/dev/tty.usb
 On the first boot after flashing, `first_run()` runs automatically — no jumper needed.
 It initialises the external FRAM and runs `STABLE_POWER_ITERATIONS` (10) inference passes.
 Subsequent power cycles resume from the saved state. To force a fresh first run without
-reflashing, bridge **D3 to GND** before powering on (remove the wire before the next boot
+reflashing, bridge **D4 to GND** before powering on (remove the wire before the next boot
 to return to normal resume behaviour).
 
 #### GPIO indicator pins
@@ -324,13 +324,15 @@ Two pads emit 5 ms active-high pulses that can be monitored with a logic analyze
 oscilloscope to track inference progress independently of UART output (including in
 `MY_DEBUG=0` release builds):
 
-| Pad | MSP430 pin | Pulse method      | Event                          |
-|-----|------------|-------------------|--------------------------------|
-| D5  | P3.6       | `TB0.5` timer     | one pulse per layer (zero CPU) |
-| D4  | P4.6       | software busy-wait | one pulse per inference        |
+| Pad | MSP430 pin | Pulse method  | Event                   |
+|-----|------------|---------------|-------------------------|
+| D2  | P2.3       | `TA0.0` timer | one pulse per inference |
+| D3  | P2.4       | `TA1.0` timer | one pulse per layer     |
 
-D5 uses Timer_B0 CCR5 in continuous mode (ACLK/VLO ~9.4 kHz); the 5 ms pulse is
-hardware-timed with no CPU involvement. D4 is a simple GPIO high/delay/low in software.
+Both pads use a hardware timer compare output in continuous ACLK (VLO ~9.4 kHz) mode;
+the 5 ms pulse is hardware-timed with no CPU involvement. D2 uses Timer_A0 CCR0;
+D3 uses Timer_A1 CCR0. D4 (P4.6) is the first_run trigger (GPIO input pull-up,
+bridge to GND at boot); it has no timer compare output on the FR5962.
 
 ### Setup and Build for MSP432P401R
 

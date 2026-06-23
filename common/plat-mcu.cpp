@@ -143,11 +143,8 @@ struct GPIOPin {
 
 static const GPIOPin indicators[] = {
 #if defined(__MSP430FR5962__)
-    // D5 = P3.6 → TB0.5 timer output (layer-finished pulse, zero CPU cost).
-    // D4 = P4.6 also used as GPIO_COUNTER_PIN (model-finished); listed here so
-    // IntermittentCNNTest() initialises it as output-low alongside indicators[0].
-    {GPIO_PORT_P3, GPIO_PIN6},  // indicators[0]: notify_layer_finished()
-    {GPIO_PORT_P4, GPIO_PIN6},  // indicators[1]: unused pulse slot
+    // D3 = P2.4 → TA1.0 timer output (layer-finished pulse, zero CPU cost).
+    {GPIO_PORT_P2, GPIO_PIN4},  // indicators[0]: notify_layer_finished()
 #elif defined(__MSP430__)
     {GPIO_PORT_P4, GPIO_PIN7},  // used in notify_layer_finished()
     {GPIO_PORT_P1, GPIO_PIN5},  // TODO: check if it works
@@ -159,8 +156,8 @@ static const GPIOPin indicators[] = {
 
 static const GPIOPin gpio_flags[] = {
 #if defined(__MSP430FR5962__)
-    // Riotee: D3 = P2.4, plus the two capacitor-voltage comparator outputs.
-    {GPIO_PORT_P2, GPIO_PIN4},
+    // Riotee: D4 = P4.6 (first_run trigger), plus the two comparator outputs.
+    {GPIO_PORT_P4, GPIO_PIN6},
     {GPIO_PORT_P5, GPIO_PIN4},  // PWRGD_L
     {GPIO_PORT_P5, GPIO_PIN5},  // PWRGD_H
 #elif defined(__MSP430__)
@@ -201,13 +198,14 @@ void copy_data_to_nvm(void) {
 [[noreturn]] void ERROR_OCCURRED(void) { while (1); }
 
 #if defined(__MSP430FR5962__)
-// Riotee: model-finished pulse on D4 = P4.6 (software busy-wait).
-// first_run trigger on D3 = P2.4: bridge D3 to GND at boot to force first_run().
+// Riotee: model-finished pulse on D2 = P2.3 (TA0.0 timer compare output).
+//         layer-finished  pulse on D3 = P2.4 (TA1.0 timer compare output).
+//         first_run trigger  on D4 = P4.6: bridge D4 to GND at boot to force first_run().
 // (D6 / PJ.6 is shared with nRF52 P1.03 which pulls it permanently low.)
-#define GPIO_COUNTER_PORT GPIO_PORT_P4
-#define GPIO_COUNTER_PIN GPIO_PIN6
-#define GPIO_RESET_PORT GPIO_PORT_P2
-#define GPIO_RESET_PIN GPIO_PIN4
+#define GPIO_COUNTER_PORT GPIO_PORT_P2
+#define GPIO_COUNTER_PIN GPIO_PIN3
+#define GPIO_RESET_PORT GPIO_PORT_P4
+#define GPIO_RESET_PIN GPIO_PIN6
 #elif defined(__MSP430__)
 #define GPIO_COUNTER_PORT GPIO_PORT_P8
 #define GPIO_COUNTER_PIN GPIO_PIN0
@@ -258,12 +256,13 @@ void IntermittentCNNTest() {
   GPIO_setAsOutputPin(GPIO_PORT_PJ, GPIO_PIN0);
   GPIO_setOutputHighOnPin(GPIO_PORT_PJ, GPIO_PIN0);
 
-  // P3.6 (D5, indicators[0]) → TB0.5 timer compare output: zero-CPU layer pulse.
-  P3SEL0 |= BIT6;  P3SEL1 &= ~BIT6;  P3DIR |= BIT6;
-  // Continuous mode, ACLK (VLO ~9.4 kHz). 5 ms pulse ≈ 47 ACLK ticks.
-  TB0CTL = TBSSEL__ACLK | MC__CONTINUOUS | TBCLR;
-  // P4.6 (D4, GPIO_COUNTER_PIN): model-finished pulse — software busy-wait
-  // (once per inference, so the 5 ms cost is negligible).
+  // P2.3 (D2, GPIO_COUNTER_PIN) → TA0.0 timer compare output: zero-CPU inference pulse.
+  P2SEL0 |= BIT3;  P2SEL1 &= ~BIT3;  P2DIR |= BIT3;
+  // P2.4 (D3, indicators[0]) → TA1.0 timer compare output: zero-CPU layer pulse.
+  P2SEL0 |= BIT4;  P2SEL1 &= ~BIT4;  P2DIR |= BIT4;
+  // Both timers: continuous mode, ACLK (VLO ~9.4 kHz). 5 ms pulse ≈ 47 ACLK ticks.
+  TA0CTL = TASSEL__ACLK | MC__CONTINUOUS | TACLR;
+  TA1CTL = TASSEL__ACLK | MC__CONTINUOUS | TACLR;
 #else
   GPIO_setAsOutputPin(GPIO_PORT_P1, GPIO_PIN0);
   GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
@@ -340,13 +339,16 @@ void button_pushed(uint16_t button1_status, uint16_t button2_status) {
 
 static void gpio_pulse(uint8_t port, uint16_t pin) {
 #if defined(__MSP430FR5962__)
-  if (port == GPIO_PORT_P3 && pin == GPIO_PIN6) {
-    // P3.6 is TB0.5.  Set HIGH via Mode 0 (direct OUT bit), then arm a Reset
-    // compare at TBR+47 (~5 ms at 9.4 kHz ACLK).  The hardware pulls the pin
-    // LOW at the match with no further CPU involvement.
-    TB0CCTL5 = OUT;           // Mode 0, OUT=1 → pin HIGH immediately
-    TB0CCR5  = TB0R + 47;    // compare fires in ~5 ms
-    TB0CCTL5 = OUTMOD_5;     // Reset mode: pin goes LOW at match
+  if (port == GPIO_PORT_P2 && pin == GPIO_PIN3) {
+    // P2.3 → TA0.0: set HIGH via Mode 0, arm Reset compare ~5 ms out.
+    TA0CCTL0 = OUT;
+    TA0CCR0  = TA0R + 47;
+    TA0CCTL0 = OUTMOD_5;
+  } else if (port == GPIO_PORT_P2 && pin == GPIO_PIN4) {
+    // P2.4 → TA1.0: same pattern using Timer_A1 CCR0.
+    TA1CCTL0 = OUT;
+    TA1CCR0  = TA1R + 47;
+    TA1CCTL0 = OUTMOD_5;
   } else {
     GPIO_setOutputHighOnPin(port, pin);
     our_delay_cycles(5E-3 * getFrequency(FreqLevel));
