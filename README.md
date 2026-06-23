@@ -301,7 +301,10 @@ expansion header. The firmware uses eUSCI_B1 on P5.0–P5.3:
 
    Use `har-dnp` or `kws-dnp` for the other models.
 
-2. Build the firmware: `cd msp430fr5962/ && make` (default is `-O3`; `make debug` for a symbolic build).
+2. Build the firmware: `cd msp430fr5962/ && make` (default is `-O3`, `MY_DEBUG=0`). Use `make debug` for a
+   symbolic debug build (`MY_DEBUG=1`: UART + `testSPI` + basic progress output). Higher levels add
+   per-layer logging (`MY_DEBUG=2`) and verbose internals (`MY_DEBUG=3`); override explicitly with
+   `make MY_DEBUG=2`.
 
 3. Connect the Riotee board via USB and flash: `make flash`. This runs `riotee-probe bypass --on`,
    programs the hex over SBW, and restores target power.
@@ -314,6 +317,20 @@ It initialises the external FRAM and runs `STABLE_POWER_ITERATIONS` (10) inferen
 Subsequent power cycles resume from the saved state. To force a fresh first run without
 reflashing, bridge **D3 to GND** before powering on (remove the wire before the next boot
 to return to normal resume behaviour).
+
+#### GPIO indicator pins
+
+Two pads emit 5 ms active-high pulses that can be monitored with a logic analyzer or
+oscilloscope to track inference progress independently of UART output (including in
+`MY_DEBUG=0` release builds):
+
+| Pad | MSP430 pin | Pulse method      | Event                          |
+|-----|------------|-------------------|--------------------------------|
+| D5  | P3.6       | `TB0.5` timer     | one pulse per layer (zero CPU) |
+| D4  | P4.6       | software busy-wait | one pulse per inference        |
+
+D5 uses Timer_B0 CCR5 in continuous mode (ACLK/VLO ~9.4 kHz); the 5 ms pulse is
+hardware-timed with no CPU involvement. D4 is a simple GPIO high/delay/low in software.
 
 ### Setup and Build for MSP432P401R
 

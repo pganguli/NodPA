@@ -91,9 +91,14 @@ INCLUDES := \
   --include_path=$(DSPLIB)/include \
   --include_path=$(DRIVERLIB)
 
-# MY_DEBUG=0: no UART, no debug prints (production).
-# MY_DEBUG=1: UART enabled, basic progress output.
+# MY_DEBUG controls debug output (levels defined in common/config.h):
+#   0  — GPIO indicator pulses only; no UART, no debug output  [default / release]
+#   1  — + UART init, testSPI, basic progress (correct/total, "Done testing run")
+#   2  — + per-layer node name / op-type logging
+#   3  — + verbose internals (matrix dumps, slot allocator, etc.)
+# 'make debug' sets MY_DEBUG=1; override explicitly: make MY_DEBUG=2
 MY_DEBUG ?= 0
+STACK_SIZE ?= 0x200
 
 DEFINES = \
   --define=__MSP430FR5962__ --define=MSP_DISABLE_DIAGNOSTICS \
@@ -117,8 +122,10 @@ CFLAGS_CPP = $(COMMON_FLAGS) --c++14
 all: release
 debug:   MY_DEBUG := 1
 debug:   OPT := --opt_level=off --symdebug:dwarf
+debug:   STACK_SIZE := 0x500
 debug:   build
 release: OPT := --opt_level=3
+release: STACK_SIZE := 0x200
 release: build
 
 build: $(OUT)/$(TARGET).hex
@@ -139,7 +146,7 @@ $(OUT)/$(TARGET).hex: $(OBJ)
 	$(CL) -vmspx --abi=eabi --data_model=large --code_model=large \
 	  --use_hw_mpy=F5 --run_linker \
 	  --define=__LARGE_CODE_MODEL__ --define=__LARGE_DATA_MODEL__ \
-	  --heap_size=160 --stack_size=0x200 \
+	  --heap_size=160 --stack_size=$(STACK_SIZE) \
 	  -i$(LIB) -i$(INC) \
 	  --output_file=$(OUT)/$(TARGET).out --map_file=$(OUT)/$(TARGET).map \
 	  $(OBJ) $(PRJ)/lnk_msp430fr5962.cmd \

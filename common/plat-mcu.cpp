@@ -1,8 +1,8 @@
 // MCU hardware backend: DMA memcpy, SPI-FRAM I/O, GPIO indicators, and DVFS.
 //
 // This file provides the platform-specific implementations of read_from_nvm,
-// write_to_nvm, my_memcpy, and related functions for MSP430FR5994 and
-// MSP432P401R.
+// write_to_nvm, my_memcpy, and related functions for MSP430FR5994,
+// MSP430FR5962 (Riotee), and MSP432P401R.
 //
 // DMA MEMCPY
 //   On MSP430: DMA channel 0 is used for word-width (16-bit) transfers,
@@ -143,9 +143,11 @@ struct GPIOPin {
 
 static const GPIOPin indicators[] = {
 #if defined(__MSP430FR5962__)
-    // Riotee spare pads: D5 = P3.6 (board LED), D2 = P2.3.
-    {GPIO_PORT_P3, GPIO_PIN6},  // used in notify_layer_finished()
-    {GPIO_PORT_P2, GPIO_PIN3},
+    // D5 = P3.6 → TB0.5 timer output (layer-finished pulse, zero CPU cost).
+    // D4 = P4.6 also used as GPIO_COUNTER_PIN (model-finished); listed here so
+    // IntermittentCNNTest() initialises it as output-low alongside indicators[0].
+    {GPIO_PORT_P3, GPIO_PIN6},  // indicators[0]: notify_layer_finished()
+    {GPIO_PORT_P4, GPIO_PIN6},  // indicators[1]: unused pulse slot
 #elif defined(__MSP430__)
     {GPIO_PORT_P4, GPIO_PIN7},  // used in notify_layer_finished()
     {GPIO_PORT_P1, GPIO_PIN5},  // TODO: check if it works
@@ -199,7 +201,7 @@ void copy_data_to_nvm(void) {
 [[noreturn]] void ERROR_OCCURRED(void) { while (1); }
 
 #if defined(__MSP430FR5962__)
-// Riotee: model-finished pulse on D4 = P4.6.
+// Riotee: model-finished pulse on D4 = P4.6 (software busy-wait).
 // first_run trigger on D3 = P2.4: bridge D3 to GND at boot to force first_run().
 // (D6 / PJ.6 is shared with nRF52 P1.03 which pulls it permanently low.)
 #define GPIO_COUNTER_PORT GPIO_PORT_P4
@@ -255,6 +257,13 @@ void IntermittentCNNTest() {
   // Riotee module LED is LED_CTRL = PJ.0 (active high), shared with the nRF52.
   GPIO_setAsOutputPin(GPIO_PORT_PJ, GPIO_PIN0);
   GPIO_setOutputHighOnPin(GPIO_PORT_PJ, GPIO_PIN0);
+
+  // P3.6 (D5, indicators[0]) → TB0.5 timer compare output: zero-CPU layer pulse.
+  P3SEL0 |= BIT6;  P3SEL1 &= ~BIT6;  P3DIR |= BIT6;
+  // Continuous mode, ACLK (VLO ~9.4 kHz). 5 ms pulse ≈ 47 ACLK ticks.
+  TB0CTL = TBSSEL__ACLK | MC__CONTINUOUS | TBCLR;
+  // P4.6 (D4, GPIO_COUNTER_PIN): model-finished pulse — software busy-wait
+  // (once per inference, so the 5 ms cost is negligible).
 #else
   GPIO_setAsOutputPin(GPIO_PORT_P1, GPIO_PIN0);
   GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
@@ -265,12 +274,11 @@ void IntermittentCNNTest() {
   our_delay_cycles(5E-3 * getFrequency(FreqLevel));
 
   initSPI();
-#if MY_DEBUG
+#if MY_DEBUG >= MY_DEBUG_NORMAL
   if (testSPI() != 0) {
-    // external FRAM failed to initialize - reset
+    uartinit();
+    print2uart("testSPI FAILED - check FRAM wiring\r\n");
     volatile uint16_t counter = 1000;
-    // waiting some time seems to increase the possibility
-    // of a successful FRAM initialization on next boot
     while (counter--);
     WDTCTL = 0;
   }
@@ -287,7 +295,7 @@ void IntermittentCNNTest() {
 #else
   if (need_reset()) {
 #endif
-#if MY_DEBUG
+#if MY_DEBUG >= MY_DEBUG_NORMAL
     uartinit();
     // To get counters in NVM after intermittent tests
     print_all_counters();
@@ -305,7 +313,7 @@ void IntermittentCNNTest() {
       run_cnn_tests(1);
     }
 
-#if MY_DEBUG
+#if MY_DEBUG >= MY_DEBUG_NORMAL
     my_printf("Done testing run" NEWLINE);
     // For platforms where counters are recorded in VM (ex: MSP432)
     print_all_counters();
@@ -331,24 +339,39 @@ void button_pushed(uint16_t button1_status, uint16_t button2_status) {
 }
 
 static void gpio_pulse(uint8_t port, uint16_t pin) {
+#if defined(__MSP430FR5962__)
+  if (port == GPIO_PORT_P3 && pin == GPIO_PIN6) {
+    // P3.6 is TB0.5.  Set HIGH via Mode 0 (direct OUT bit), then arm a Reset
+    // compare at TBR+47 (~5 ms at 9.4 kHz ACLK).  The hardware pulls the pin
+    // LOW at the match with no further CPU involvement.
+    TB0CCTL5 = OUT;           // Mode 0, OUT=1 → pin HIGH immediately
+    TB0CCR5  = TB0R + 47;    // compare fires in ~5 ms
+    TB0CCTL5 = OUTMOD_5;     // Reset mode: pin goes LOW at match
+  } else {
+    GPIO_setOutputHighOnPin(port, pin);
+    our_delay_cycles(5E-3 * getFrequency(FreqLevel));
+    GPIO_setOutputLowOnPin(port, pin);
+  }
+#else
   // Trigger a short peak so that multiple inferences in long power cycles are
   // correctly recorded
   GPIO_setOutputHighOnPin(port, pin);
   our_delay_cycles(5E-3 * getFrequency(FreqLevel));
   GPIO_setOutputLowOnPin(port, pin);
+#endif
 }
 
 void notify_layer_finished(void) { notify_indicator(0); }
 
 void notify_model_finished(void) {
-#if MY_DEBUG
+#if MY_DEBUG >= MY_DEBUG_NORMAL
   my_printf("." NEWLINE);
 #endif
   gpio_pulse(GPIO_COUNTER_PORT, GPIO_COUNTER_PIN);
 }
 
 void notify_indicator(uint8_t idx) {
-#if !ENABLE_DEMO_COUNTERS && MY_DEBUG
+#if !ENABLE_DEMO_COUNTERS && MY_DEBUG >= MY_DEBUG_NORMAL
   my_printf("I%d" NEWLINE, idx);
 #endif
   gpio_pulse(indicators[idx].port, indicators[idx].pin);
