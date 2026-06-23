@@ -1,12 +1,16 @@
 [submodule "models/deep-learning-HAR"]
 	path = dnn-models/deep-learning-HAR
-	url = https://github.com/EMCLab-Sinica/deep-learning-HAR.git
+	url = ../deep-learning-HAR.git
+	branch = riotee
 [submodule "Tools"]
 	path = tools
-	url = https://github.com/EMCLab-Sinica/Tools.git
+	url = ../Tools.git
+	branch = riotee
 [submodule "TI-DSPLib"]
 	path = TI-DSPLib
-	url = https://github.com/EMCLab-Sinica/DSPLib.git
+	url = ../DSPLib.git
+	branch = riotee
 [submodule "ARM-CMSIS"]
 	path = ARM-CMSIS
-	url = https://github.com/EMCLab-Sinica/ARM-CMSIS.git
+	url = ../ARM-CMSIS.git
+	branch = riotee
