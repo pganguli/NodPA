@@ -199,12 +199,13 @@ void copy_data_to_nvm(void) {
 [[noreturn]] void ERROR_OCCURRED(void) { while (1); }
 
 #if defined(__MSP430FR5962__)
-// Riotee: model-finished pulse on D4 = P4.6; test-mode trigger on the board
-// push button D6 = PJ.6 (1M pull-up, pressed = low).
+// Riotee: model-finished pulse on D4 = P4.6.
+// first_run trigger on D3 = P2.4: bridge D3 to GND at boot to force first_run().
+// (D6 / PJ.6 is shared with nRF52 P1.03 which pulls it permanently low.)
 #define GPIO_COUNTER_PORT GPIO_PORT_P4
 #define GPIO_COUNTER_PIN GPIO_PIN6
-#define GPIO_RESET_PORT GPIO_PORT_PJ
-#define GPIO_RESET_PIN GPIO_PIN6
+#define GPIO_RESET_PORT GPIO_PORT_P2
+#define GPIO_RESET_PIN GPIO_PIN4
 #elif defined(__MSP430__)
 #define GPIO_COUNTER_PORT GPIO_PORT_P8
 #define GPIO_COUNTER_PIN GPIO_PIN0
@@ -280,7 +281,7 @@ void IntermittentCNNTest() {
 #endif
 
 #if defined(__MSP430FR5962__)
-  if (first_run_done != FIRST_RUN_DONE_MAGIC) {
+  if (need_reset() || first_run_done != FIRST_RUN_DONE_MAGIC) {
 #else
   if (need_reset()) {
 #endif

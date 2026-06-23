@@ -309,10 +309,11 @@ expansion header. The firmware uses eUSCI_B1 on P5.0–P5.3:
 Inference output appears at **9600 baud** on the USB CDC serial port exposed by the Riotee's
 RP2040 bridge. On Linux this is typically `/dev/ttyACM0`; on macOS `/dev/tty.usbmodem*`.
 
-On the first boot after flashing, `first_run()` runs automatically — no button-holding needed.
+On the first boot after flashing, `first_run()` runs automatically — no jumper needed.
 It initialises the external FRAM and runs `STABLE_POWER_ITERATIONS` (10) inference passes.
-Subsequent power cycles resume from the saved state. To force a fresh first run, reflash
-(the programmer resets the FRAM flag at `0x402a`).
+Subsequent power cycles resume from the saved state. To force a fresh first run without
+reflashing, bridge **D3 to GND** before powering on (remove the wire before the next boot
+to return to normal resume behaviour).
 
 ### Setup and Build for MSP432P401R
 
