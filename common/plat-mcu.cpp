@@ -219,6 +219,18 @@ void copy_data_to_nvm(void) {
 
 #define STABLE_POWER_ITERATIONS 10
 
+#if defined(__MSP430FR5962__)
+/* nRF52 P1.03 and MSP430 PJ.6 share the D6 net.  The nRF52 may drive PJ.6
+ * low (output-low or internal pull-down), making need_reset() permanently
+ * true and triggering first_run() on every power cycle.  Use a magic byte
+ * in the internal FRAM .nvm section (type=NOINIT) instead: the linker drops
+ * any .cinit record for it so the value survives power cycles.  On a
+ * factory-fresh or erased chip the byte is 0xFF; first_run() writes 0xA5.
+ * Subsequent power cycles find 0xA5 and go directly to the resume path. */
+__attribute__((section(".nvm"))) static uint8_t first_run_done;
+#define FIRST_RUN_DONE_MAGIC 0xA5u
+#endif
+
 bool need_reset() {
   return !GPIO_getInputPinValue(GPIO_RESET_PORT, GPIO_RESET_PIN);
 }
@@ -267,13 +279,21 @@ void IntermittentCNNTest() {
   load_counters();
 #endif
 
+#if defined(__MSP430FR5962__)
+  if (first_run_done != FIRST_RUN_DONE_MAGIC) {
+#else
   if (need_reset()) {
+#endif
     uartinit();
 
     // To get counters in NVM after intermittent tests
     print_all_counters();
 
     first_run();
+
+#if defined(__MSP430FR5962__)
+    first_run_done = FIRST_RUN_DONE_MAGIC;
+#endif
 
     notify_model_finished();
 

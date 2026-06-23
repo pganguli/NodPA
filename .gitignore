@@ -17,6 +17,7 @@ __pycache__/
 # data files
 /nvm.bin
 /samples.bin
+/dnn-models/samples.bin
 /images/
 *.pb
 
