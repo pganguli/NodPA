@@ -265,6 +265,7 @@ void IntermittentCNNTest() {
   our_delay_cycles(5E-3 * getFrequency(FreqLevel));
 
   initSPI();
+#if MY_DEBUG
   if (testSPI() != 0) {
     // external FRAM failed to initialize - reset
     volatile uint16_t counter = 1000;
@@ -273,6 +274,7 @@ void IntermittentCNNTest() {
     while (counter--);
     WDTCTL = 0;
   }
+#endif
 
   load_model_from_nvm();
 
@@ -285,10 +287,11 @@ void IntermittentCNNTest() {
 #else
   if (need_reset()) {
 #endif
+#if MY_DEBUG
     uartinit();
-
     // To get counters in NVM after intermittent tests
     print_all_counters();
+#endif
 
     first_run();
 
@@ -302,10 +305,11 @@ void IntermittentCNNTest() {
       run_cnn_tests(1);
     }
 
+#if MY_DEBUG
     my_printf("Done testing run" NEWLINE);
-
     // For platforms where counters are recorded in VM (ex: MSP432)
     print_all_counters();
+#endif
 
     get_model()->run_counter = 0;
     commit_model();
@@ -337,12 +341,14 @@ static void gpio_pulse(uint8_t port, uint16_t pin) {
 void notify_layer_finished(void) { notify_indicator(0); }
 
 void notify_model_finished(void) {
+#if MY_DEBUG
   my_printf("." NEWLINE);
+#endif
   gpio_pulse(GPIO_COUNTER_PORT, GPIO_COUNTER_PIN);
 }
 
 void notify_indicator(uint8_t idx) {
-#if !ENABLE_DEMO_COUNTERS
+#if !ENABLE_DEMO_COUNTERS && MY_DEBUG
   my_printf("I%d" NEWLINE, idx);
 #endif
   gpio_pulse(indicators[idx].port, indicators[idx].pin);

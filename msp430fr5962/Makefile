@@ -91,24 +91,31 @@ INCLUDES := \
   --include_path=$(DSPLIB)/include \
   --include_path=$(DRIVERLIB)
 
-DEFINES := \
+# MY_DEBUG=0: no UART, no debug prints (production).
+# MY_DEBUG=1: UART enabled, basic progress output.
+MY_DEBUG ?= 0
+
+DEFINES = \
   --define=__MSP430FR5962__ --define=MSP_DISABLE_DIAGNOSTICS \
-  --define=MY_DEBUG=1 --define=USE_ARM_CMSIS=0 --define=LEA_BUFFER_SIZE=1884
+  --define=MY_DEBUG=$(MY_DEBUG) --define=USE_ARM_CMSIS=0 --define=LEA_BUFFER_SIZE=1884
 
 OPT ?= --opt_level=3
 
-COMMON_FLAGS := -vmspx --abi=eabi --data_model=large --code_model=large \
+# Use recursive (=) so that target-specific MY_DEBUG / OPT overrides take effect
+# at recipe evaluation time rather than at parse time.
+COMMON_FLAGS = -vmspx --abi=eabi --data_model=large --code_model=large \
   --use_hw_mpy=F5 $(OPT) \
   --silicon_errata=CPU21 --silicon_errata=CPU22 --silicon_errata=CPU40 \
   --advice:power=none --gen_func_subsections=on \
   $(INCLUDES) $(DEFINES)
 
-CFLAGS_C   := $(COMMON_FLAGS) --c99
-CFLAGS_CPP := $(COMMON_FLAGS) --c++14
+CFLAGS_C   = $(COMMON_FLAGS) --c99
+CFLAGS_CPP = $(COMMON_FLAGS) --c++14
 
 .PHONY: all debug release build clean flash
 
 all: release
+debug:   MY_DEBUG := 1
 debug:   OPT := --opt_level=off --symdebug:dwarf
 debug:   build
 release: OPT := --opt_level=3

@@ -35,8 +35,10 @@ int main(void) {
   /* Initialize UART before IntermittentCNNTest() so that any failure inside
    * (e.g. testSPI triggering a watchdog reset) produces visible output rather
    * than a silent reset loop. */
+#if MY_DEBUG
   uartinit();
   print2uart("NodPA FR5962: starting\r\n");
+#endif
 
   IntermittentCNNTest();
 
