@@ -34,6 +34,7 @@ Demo video: [https://youtu.be/_1qVoG4aCxY](https://youtu.be/_1qVoG4aCxY)
   * [Testing Intermittent Execution](#testing-intermittent-execution)
   * [Hardware Wiring](#hardware-wiring)
   * [Setup and Build for MSP430FR5994](#setup-and-build-for-msp430fr5994)
+  * [Setup and Build for MSP430FR5962 on Riotee](#setup-and-build-for-msp430fr5962-on-riotee)
   * [Setup and Build for MSP432P401R](#setup-and-build-for-msp432p401r)
 
 ## Directory/File Structure
@@ -254,6 +255,64 @@ Use the CCS built-in serial terminal or run:
 ```bash
 python tools/minicom-launcher.py
 ```
+
+### Setup and Build for MSP430FR5962 on Riotee
+
+The `msp430fr5962/` folder contains a command-line Makefile build for the MSP430FR5962 on the
+[Riotee](https://www.riotee.nrf.no/) energy-harvesting module. Unlike the FR5994 and MSP432
+targets, this build does not use a CCS project — it drives `cl430`/`lnk430`/`hex430` directly
+and flashes over SBW via `riotee-probe`.
+
+#### Riotee Prerequisites
+
+* **CCS 12.8** with the MSP430 compiler toolchain (v21.6 LTS) — bundled with CCS, no separate download.
+  The Makefile auto-detects CCS under `~/ti/ccs*/ccs`; override with `make CCS_ROOT=<path>` if needed.
+* **MSP430 driverlib**: the same `msp430/driverlib/MSP430FR5xx_6xx/` folder used by the FR5994 target
+  (see [MSP430 Prerequisites](#msp430-prerequisites) above).
+* **Submodules** (TI-DSPLib): `git submodule update --init --recursive`
+* **riotee-probe**: install with [pipx](https://pipx.pypa.io/):
+
+  ```bash
+  pipx install riotee-probe
+  ```
+
+#### Riotee Hardware Wiring
+
+An external SPI FRAM (8 Mbit, e.g. Cypress CY15B104Q or equivalent) must be wired to the Riotee
+expansion header. The firmware uses eUSCI_B1 on P5.0–P5.3:
+
+| FRAM pin | Riotee pad | MSP430 pin | Purpose              |
+|----------|------------|------------|----------------------|
+| GND      | GND        | GND        | common ground        |
+| VCC      | +2V        | —          | 2 V supply           |
+| CS       | D7         | P5.3       | chip select          |
+| SCK      | D8         | P5.2       | SPI clock            |
+| MISO/SDO | D9         | P5.1       | data FRAM → MSP430   |
+| MOSI/SDI | D10        | P5.0       | data MSP430 → FRAM   |
+
+#### Riotee Steps
+
+1. Generate data files:
+
+   ```bash
+   source .venv/bin/activate
+   python dnn-models/transform.py --target msp430 --hawaii --all-samples cifar10-dnp
+   ```
+
+   Use `har-dnp` or `kws-dnp` for the other models.
+
+2. Build the firmware: `cd msp430fr5962/ && make` (default is `-O3`; `make debug` for a symbolic build).
+
+3. Connect the Riotee board via USB and flash: `make flash`. This runs `riotee-probe bypass --on`,
+   programs the hex over SBW, and restores target power.
+
+Inference output appears at **9600 baud** on the USB CDC serial port exposed by the Riotee's
+RP2040 bridge. On Linux this is typically `/dev/ttyACM0`; on macOS `/dev/tty.usbmodem*`.
+
+On the first boot after flashing, `first_run()` runs automatically — no button-holding needed.
+It initialises the external FRAM and runs `STABLE_POWER_ITERATIONS` (10) inference passes.
+Subsequent power cycles resume from the saved state. To force a fresh first run, reflash
+(the programmer resets the FRAM flag at `0x402a`).
 
 ### Setup and Build for MSP432P401R
 
