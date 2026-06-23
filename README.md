@@ -249,7 +249,7 @@ Key compiler settings applied automatically by the `.cproject`:
 Connect the MSP-EXP430FR5994 LaunchPad via USB, then **Run → Debug** in CCS. This flashes the
 `.out` file and halts at `main`. Press **Run → Resume** (F8) to start inference.
 
-Inference results are printed over UART at **9600 baud** (configured in `tools/myuart.h`).
+Inference results are printed over UART at **115200 baud** (configured in `tools/myuart.c`).
 Use the CCS built-in serial terminal or run:
 
 ```bash
@@ -309,7 +309,7 @@ expansion header. The firmware uses eUSCI_B1 on P5.0–P5.3:
 3. Connect the Riotee board via USB and flash: `make flash`. This runs `riotee-probe bypass --on`,
    programs the hex over SBW, and restores target power.
 
-Inference output appears at **9600 baud** on the USB CDC serial port exposed by the Riotee's
+Inference output appears at **115200 baud** on the USB CDC serial port exposed by the Riotee's
 RP2040 bridge. On Linux this is typically `/dev/ttyACM0`; on macOS `/dev/tty.usbmodem*`.
 
 On the first boot after flashing, `first_run()` runs automatically — no jumper needed.
