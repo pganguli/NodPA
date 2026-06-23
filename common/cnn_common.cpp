@@ -378,8 +378,8 @@ uint8_t run_cnn_tests(uint16_t n_samples) {
   if (n_samples == 1) {
     dump_params(get_model(), output_node, "Output", "Output");
   }
-  my_printf("correct=%" PRId32 " ", inference_results_vm.correct);
-  my_printf("total=%" PRId32 " ", inference_results_vm.total);
+  my_printf("correct=%" PRId32 " ", (int32_t)inference_results_vm.correct);
+  my_printf("total=%" PRId32 " ", (int32_t)inference_results_vm.total);
 #ifndef __arm__
   my_printf("accuracy=%.2f%%" NEWLINE,
             100.0 * inference_results_vm.correct / inference_results_vm.total);

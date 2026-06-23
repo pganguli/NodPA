@@ -44,6 +44,7 @@
 #include <cstring>
 
 #include "cnn_common.h"
+#include "double_buffering.h"
 #include "counters.h"
 #include "data.h"
 #include "intermittent-cnn.h"
@@ -320,6 +321,11 @@ void IntermittentCNNTest() {
 
     get_model()->run_counter = 0;
     commit_model();
+
+    inference_results_vm.correct    = 0;
+    inference_results_vm.total      = 0;
+    inference_results_vm.sample_idx = 0;
+    commit_versioned_data<InferenceResults>(0);
 
     while (1);
   }
