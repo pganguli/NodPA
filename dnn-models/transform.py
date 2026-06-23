@@ -108,8 +108,8 @@ class Constants:
     INPUTS_DATA_LEN = 0
     NUM_INPUTS = 0  # will be filled during parsing
     N_INPUT = 0
-    # Match the size of external FRAM
-    NVM_SIZE = 2048 * 1024
+    # Match the size of external FRAM (8 Mbit chip = 1 MB)
+    NVM_SIZE = 1024 * 1024
     ORIG_NVM_SIZE = NVM_SIZE
     INTERMEDIATE_VALUES_SIZE = 0  # will be filled by nvm_layout()
     N_SAMPLES = 1

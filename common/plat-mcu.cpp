@@ -142,7 +142,11 @@ struct GPIOPin {
 };
 
 static const GPIOPin indicators[] = {
-#ifdef __MSP430__
+#if defined(__MSP430FR5962__)
+    // Riotee spare pads: D5 = P3.6 (board LED), D2 = P2.3.
+    {GPIO_PORT_P3, GPIO_PIN6},  // used in notify_layer_finished()
+    {GPIO_PORT_P2, GPIO_PIN3},
+#elif defined(__MSP430__)
     {GPIO_PORT_P4, GPIO_PIN7},  // used in notify_layer_finished()
     {GPIO_PORT_P1, GPIO_PIN5},  // TODO: check if it works
 #else
@@ -152,7 +156,12 @@ static const GPIOPin indicators[] = {
 };
 
 static const GPIOPin gpio_flags[] = {
-#ifdef __MSP430__
+#if defined(__MSP430FR5962__)
+    // Riotee: D3 = P2.4, plus the two capacitor-voltage comparator outputs.
+    {GPIO_PORT_P2, GPIO_PIN4},
+    {GPIO_PORT_P5, GPIO_PIN4},  // PWRGD_L
+    {GPIO_PORT_P5, GPIO_PIN5},  // PWRGD_H
+#elif defined(__MSP430__)
     // TODO: check if these work on MSP430
     {GPIO_PORT_P3, GPIO_PIN7},
     {GPIO_PORT_P3, GPIO_PIN6},
@@ -189,7 +198,14 @@ void copy_data_to_nvm(void) {
 
 [[noreturn]] void ERROR_OCCURRED(void) { while (1); }
 
-#ifdef __MSP430__
+#if defined(__MSP430FR5962__)
+// Riotee: model-finished pulse on D4 = P4.6; test-mode trigger on the board
+// push button D6 = PJ.6 (1M pull-up, pressed = low).
+#define GPIO_COUNTER_PORT GPIO_PORT_P4
+#define GPIO_COUNTER_PIN GPIO_PIN6
+#define GPIO_RESET_PORT GPIO_PORT_PJ
+#define GPIO_RESET_PIN GPIO_PIN6
+#elif defined(__MSP430__)
 #define GPIO_COUNTER_PORT GPIO_PORT_P8
 #define GPIO_COUNTER_PIN GPIO_PIN0
 #define GPIO_RESET_PORT GPIO_PORT_P5
@@ -222,8 +238,14 @@ void IntermittentCNNTest() {
                                          gpio_flags[idx].pin);
   }
 
+#if defined(__MSP430FR5962__)
+  // Riotee module LED is LED_CTRL = PJ.0 (active high), shared with the nRF52.
+  GPIO_setAsOutputPin(GPIO_PORT_PJ, GPIO_PIN0);
+  GPIO_setOutputHighOnPin(GPIO_PORT_PJ, GPIO_PIN0);
+#else
   GPIO_setAsOutputPin(GPIO_PORT_P1, GPIO_PIN0);
   GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
+#endif
 
   // sleep to wait for external FRAM
   // 5ms / (1/f)
