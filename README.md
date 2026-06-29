@@ -117,10 +117,9 @@ Use `-n PATH` to redirect it (recommended when running inside Docker or WSL to a
 
 Debug output levels (set at cmake configure time):
 
-* `cmake -B build -S . -D MY_DEBUG=0` — no debug output (default for size-optimized builds)
-* `cmake -B build -S . -D MY_DEBUG=1` — basic progress output
-* `cmake -B build -S . -D MY_DEBUG=2` — verbose layer outputs (needed for protobuf feature-map saving)
-* `cmake -B build -S . -D MY_DEBUG=3` — maximum verbosity (many power-cycle points for intermittency testing)
+* `cmake -B build -S .` — no debug output (default)
+* `cmake -B build -S . -D DEBUG=ON` — basic progress output (assertions, accuracy prints)
+* `cmake -B build -S . -D VERBOSE=ON` — verbose layer/element dumps (implies DEBUG)
 
 For more details about the simulator, see `common/simulator.md`.
 
@@ -263,6 +262,13 @@ The `msp430fr5962/` folder contains a command-line Makefile build for the MSP430
 targets, this build does not use a CCS project — it drives `cl430`/`lnk430`/`hex430` directly
 and flashes over SBW via `riotee-probe`.
 
+Two NVM backends are supported, selected at build time via `EXT_FRAM=`:
+
+| `EXT_FRAM` | NVM backend | UART | Models supported |
+|------------|-------------|------|-----------------|
+| `1` (default) | External SPI FRAM via eUSCI_A1 + DMA | disabled (UCA1 shared) | any model ≤ 1 MB |
+| `0` | MSP430 internal FRAM (no external chip) | enabled | models fitting ~82 KB |
+
 #### Riotee Prerequisites
 
 * **CCS 12.8** with the MSP430 compiler toolchain (v21.6 LTS) — bundled with CCS, no separate download.
@@ -276,63 +282,92 @@ and flashes over SBW via `riotee-probe`.
   pipx install riotee-probe
   ```
 
-#### Riotee Hardware Wiring
+#### Riotee Hardware Wiring (EXT_FRAM=1)
 
 An external SPI FRAM (8 Mbit, e.g. Cypress CY15B104Q or equivalent) must be wired to the Riotee
-expansion header. The firmware uses eUSCI_B1 on P5.0–P5.3:
+expansion header. The firmware uses **eUSCI_A1 on P2.3–P2.6 (pads D0–D3)**. eUSCI_B1 (D7–D10)
+cannot be used for full-duplex DMA on the FR5962 because both its RX and TX DMA triggers share a
+single channel (see `tools/ext_fram/extfram.c`).
 
-| FRAM pin | Riotee pad | MSP430 pin | Purpose              |
-|----------|------------|------------|----------------------|
-| GND      | GND        | GND        | common ground        |
-| VCC      | +2V        | —          | 2 V supply           |
-| CS       | D7         | P5.3       | chip select          |
-| SCK      | D8         | P5.2       | SPI clock            |
-| MISO/SDO | D9         | P5.1       | data FRAM → MSP430   |
-| MOSI/SDI | D10        | P5.0       | data MSP430 → FRAM   |
+| FRAM pin | Riotee pad | MSP430 pin | Purpose            |
+|----------|------------|------------|--------------------|
+| GND      | GND        | GND        | common ground      |
+| VCC      | +2V        | —          | 2 V supply         |
+| CS       | D2         | P2.3       | chip select (GPIO) |
+| SCK      | D3         | P2.4       | SPI clock          |
+| MOSI/SDI | D1         | P2.5       | data MSP430 → FRAM |
+| MISO/SDO | D0         | P2.6       | data FRAM → MSP430 |
 
-#### Riotee Steps
+When `EXT_FRAM=0` no external chip is needed; all NVM state lives in the MSP430's internal FRAM.
 
-1. Generate data files:
+#### Riotee Build and Flash
 
-   ```bash
-   source .venv/bin/activate
-   python dnn-models/transform.py --target msp430 --hawaii --all-samples cifar10-dnp
-   ```
+From the **repo root** (recommended — the root Makefile provides convenient shortcut targets):
 
-   Use `har-dnp` or `kws-dnp` for the other models.
+```bash
+# Generate model data (run once per model change)
+make data-cifar10-dnp          # or data-har-dnp, data-kws-dnp
+make data-har-int              # internal-FRAM layout (required for EXT_FRAM=0 + HAR)
 
-2. Build the firmware: `cd msp430fr5962/ && make` (default is `-O3`, `MY_DEBUG=0`). Use `make debug` for a
-   symbolic debug build (`MY_DEBUG=1`: UART + `testSPI` + basic progress output). Higher levels add
-   per-layer logging (`MY_DEBUG=2`) and verbose internals (`MY_DEBUG=3`); override explicitly with
-   `make MY_DEBUG=2`.
+# Build
+make release-riotee            # EXT_FRAM=1, -O3, no debug output   [default]
+make release-riotee EXT_FRAM=0 # EXT_FRAM=0, -O3, no debug output
+make debug-riotee              # EXT_FRAM=1, no opt, DEBUG=1 (GPIO counters + assertions)
 
-3. Connect the Riotee board via USB and flash: `make flash`. This runs `riotee-probe bypass --on`,
-   programs the hex over SBW, and restores target power.
+# Flash (from inside msp430fr5962/ after any build above)
+cd msp430fr5962 && make flash  # programs whatever was built last
+```
 
-Inference output appears at **115200 baud** on the USB CDC serial port exposed by the Riotee's
-RP2040 bridge. On Linux this is typically `/dev/ttyACM0`; on macOS `/dev/tty.usbmodem*`.
+Or build directly from `msp430fr5962/`:
+
+```bash
+cd msp430fr5962
+make release              # EXT_FRAM=1 (default), -O3
+make debug                # EXT_FRAM=1, no opt, DEBUG=1
+make release EXT_FRAM=0   # internal FRAM, -O3
+make flash                # flash the last-built hex via riotee-probe
+```
+
+Build variables (all combinable):
+
+| Variable | Values | Default | Effect |
+|----------|--------|---------|--------|
+| `EXT_FRAM` | `0` / `1` | `1` | NVM backend: internal or external SPI FRAM |
+| `DEBUG` | `0` / `1` | `0` | Assertions, `testSPI`, accuracy prints, GPIO counters |
+| `VERBOSE` | `0` / `1` | `0` | Per-layer/element tensor dumps (implies `DEBUG=1`) |
+
+#### First Boot and UART
 
 On the first boot after flashing, `first_run()` runs automatically — no jumper needed.
-It initialises the external FRAM and runs `STABLE_POWER_ITERATIONS` (10) inference passes.
-Subsequent power cycles resume from the saved state. To force a fresh first run without
-reflashing, bridge **D4 to GND** before powering on (remove the wire before the next boot
-to return to normal resume behaviour).
+It initialises NVM and runs `STABLE_POWER_ITERATIONS` (10) inference passes.
+Subsequent power cycles resume from saved state. To force a fresh first run without
+reflashing, bridge **D4 to GND** before powering on (remove the wire before the next boot).
 
-#### GPIO indicator pins
+With `EXT_FRAM=0` (internal FRAM) inference output appears at **115200 baud** on the USB CDC
+serial port exposed by the Riotee's RP2040 bridge (`/dev/ttyACM0` on Linux,
+`/dev/tty.usbmodem*` on macOS). With `EXT_FRAM=1` the debug UART is disabled because eUSCI_A1
+is shared with the SPI FRAM; use the GPIO indicator pins instead.
 
-Two pads emit 5 ms active-high pulses that can be monitored with a logic analyzer or
-oscilloscope to track inference progress independently of UART output (including in
-`MY_DEBUG=0` release builds):
+#### GPIO Indicator Pins
 
-| Pad | MSP430 pin | Pulse method  | Event                   |
-|-----|------------|---------------|-------------------------|
-| D2  | P2.3       | `TA0.0` timer | one pulse per inference |
-| D3  | P2.4       | `TA1.0` timer | one pulse per layer     |
+All builds (including `DEBUG=0` release) emit 5 ms active-high pulses on two pads.
+The pad assignments depend on the NVM backend:
 
-Both pads use a hardware timer compare output in continuous ACLK (VLO ~9.4 kHz) mode;
-the 5 ms pulse is hardware-timed with no CPU involvement. D2 uses Timer_A0 CCR0;
-D3 uses Timer_A1 CCR0. D4 (P4.6) is the first_run trigger (GPIO input pull-up,
-bridge to GND at boot); it has no timer compare output on the FR5962.
+**EXT_FRAM=0 (internal FRAM) — timer outputs, zero CPU cost:**
+
+| Pad | MSP430 pin | Timer output | Event                   |
+|-----|------------|--------------|-------------------------|
+| D2  | P2.3       | TA0.0        | one pulse per inference |
+| D3  | P2.4       | TA1.0        | one pulse per layer     |
+
+**EXT_FRAM=1 (external FRAM) — plain GPIO (D2/D3 are SPI pins):**
+
+| Pad | MSP430 pin | Event                   |
+|-----|------------|-------------------------|
+| D7  | P5.3       | one pulse per inference |
+| D8  | P5.2       | one pulse per layer     |
+
+In both cases **D4 (P4.6)** is the first_run trigger input (pull-up; bridge to GND at boot).
 
 ### Setup and Build for MSP432P401R
 
