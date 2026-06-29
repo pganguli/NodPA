@@ -207,7 +207,7 @@ void handle_broadcastd_binary_op(Model* model, const ParameterInfo* input[],
     my_printf_debug(
         NEWLINE "X_value_offset=%d, Y_value_offset=%d, data_offset=%d" NEWLINE,
         X_value_offset, Y_value_offset, data_offset);
-#if MY_DEBUG >= MY_DEBUG_VERBOSE
+#if VERBOSE
     my_printf_debug("output_indices=");
     for (uint8_t dim_idx = 0; dim_idx < binary_op_params.output_num_dims;
          dim_idx++) {

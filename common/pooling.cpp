@@ -228,7 +228,7 @@ void handle_max_pool(Model* model, const ParameterInfo* input[],
           len = maxpool_patch(maxpool_params);
           my_printf_debug("output_offset=[% 5d, % 5d) ", output_offset,
                           output_offset + len);
-#if MY_DEBUG >= MY_DEBUG_VERBOSE
+#if VERBOSE
           my_printf_debug(" max=");
           for (uint8_t idx = 0; idx < len; idx++) {
             my_printf_debug("% 6d ", lea_buffer[idx]);

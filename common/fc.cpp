@@ -193,6 +193,23 @@ void handle_gemm_impl(Model* model, const ParameterInfo* input[],
            output_rows = output->dims[output_dims - 2],
            output_cols = output->dims[output_dims - 1];
 
+#if DEBUG
+  {
+    my_printf("GEMMA slot=%d poff=%lu plen=%lu dims=%d,%d scale=%f" NEWLINE,
+              (int)A->slot, (unsigned long)A->params_offset,
+              (unsigned long)A->params_len, (int)A->dims[0], (int)A->dims[1],
+              A->scale.toFloat());
+    int16_t tmp[8];
+    uint16_t n = MIN_VAL((uint16_t)8, A_cols);
+    my_memcpy_from_param(model, tmp, A, 0, n * sizeof(int16_t));
+    my_printf("GEMMA[0..%d]:", (int)(n - 1));
+    for (uint16_t i = 0; i < n; i++) my_printf(" %d", (int)tmp[i]);
+    my_printf(NEWLINE);
+    my_printf("GEMMB scale=%f dims=%d,%d" NEWLINE,
+              B->scale.toFloat(), (int)B->dims[0], (int)B->dims[1]);
+  }
+#endif
+
 #if INTERMITTENT
   gemm_recovery(model, input, output, node, node_flags, orig_node_flags,
                 output_rows, output_cols, &tile_channel_offset,

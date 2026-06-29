@@ -308,7 +308,7 @@ static void convTask(int16_t cur_input_h, const ConvLayerDimensions* layer_dims,
   /* START dump data */
   my_printf_debug("input_h=%d" NEWLINE, cur_input_h);
   my_printf_debug("filter_idx=");
-#if MY_DEBUG >= MY_DEBUG_VERBOSE
+#if VERBOSE
   for (uint16_t idx = 0; idx < cur_output_tile_c; idx++) {
     my_printf_debug("%d ", conv_params->filter_idx + idx);
     MY_ASSERT(conv_params->filter_idx + idx < layer_dims->N_FILTERS);
@@ -416,7 +416,7 @@ static inline uint16_t load_input_vector(uint32_t src_addr, int16_t* dest_addr,
                        conv_params->conv_input, src_addr,
                        len * sizeof(int16_t));
 
-#if MY_DEBUG >= MY_DEBUG_VERBOSE
+#if VERBOSE
   for (uint16_t idx = 0; idx < loaded_len; idx++) {
     my_printf_debug("%d ", dest_addr[idx]);
   }
@@ -1065,7 +1065,7 @@ void handle_conv(Model* model, const ParameterInfo* input[],
   }
 #endif
 
-#if MY_DEBUG >= MY_DEBUG_LAYERS
+#if VERBOSE
   my_printf_debug("handle_conv output" NEWLINE);
   dump_params_nhwc_debug(model, output, node->output_name, "Conv");
   if (conv_params->flags->conv.pruning_target == PRUNING_OUTPUT_CHANNELS) {

@@ -5,7 +5,7 @@
 // and get_node_orig_flags simply cast into those arrays — no deserialization.
 //
 // NodeFlags mutability:
-//   In production builds (MY_DEBUG < MY_DEBUG_LAYERS, no demo counters) the
+//   In production builds (!VERBOSE, no demo counters) the
 //   per-node flags are never mutated during inference, so get_node_flags()
 //   returns a pointer directly into the read-only node_orig_flags_data array.
 //
@@ -40,7 +40,7 @@ const Node* get_node(const ParameterInfo* param) {
   return get_node(param->parameter_info_idx - N_INPUT);
 }
 
-#if MY_DEBUG >= MY_DEBUG_LAYERS || ENABLE_DEMO_COUNTERS
+#if VERBOSE || ENABLE_DEMO_COUNTERS
 NodeFlags node_flags_vm[MODEL_NODES_LEN];
 
 template <>

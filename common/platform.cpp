@@ -56,8 +56,13 @@
 #include "my_debug.h"
 
 // put offset checks here as extra headers are used
+// In the external-FRAM layout the NVM grows from both ends; verify the two
+// regions don't overlap.  In the internal-FRAM layout PARAMETERS_OFFSET is a
+// virtual alias beyond WRITABLE_NVM_SIZE, so the same check does not apply.
+#if !defined(__MSP430FR5962__) || EXT_FRAM
 static_assert(COUNTERS_OFFSET >= PARAMETERS_OFFSET + PARAMETERS_DATA_LEN,
               "Incorrect NVM layout");
+#endif
 
 static const uint8_t FOOTPRINT_SIZE = 2;
 

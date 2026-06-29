@@ -20,7 +20,7 @@
 //
 // commit_node_flags(node_flags):
 //   Writes the VM copy back to both NVM shadow copies (double-buffered write).
-//   Only compiled in when MY_DEBUG >= MY_DEBUG_LAYERS or ENABLE_DEMO_COUNTERS,
+//   Only compiled in when VERBOSE or ENABLE_DEMO_COUNTERS,
 //   because in production the flags are never modified at runtime.
 
 #pragma once
@@ -41,6 +41,6 @@ const NodeFlags* get_node_orig_flags(size_t i);
 const Node* get_node(const ParameterInfo* param);
 
 CurNodeFlags* get_node_flags(uint16_t node_idx);
-#if MY_DEBUG >= MY_DEBUG_LAYERS || ENABLE_DEMO_COUNTERS
+#if VERBOSE || ENABLE_DEMO_COUNTERS
 void commit_node_flags(const NodeFlags* node_flags);
 #endif

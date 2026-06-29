@@ -113,7 +113,7 @@ static uint16_t get_next_slot(Model* model) {
       next_slot_id = 0;
       cycle_count++;
       MY_ASSERT(cycle_count <= 1);
-      // Release builds (MY_DEBUG == 0) disable MY_ASSERT, so the while(1) is
+      // Release builds (!DEBUG) disable MY_ASSERT, so the while(1) is
       // the only failsafe against looping forever when all slots are occupied.
       if (cycle_count > 1) {
         while (1);
@@ -152,7 +152,7 @@ static void handle_node(Model* model, uint16_t node_idx) {
   const Node* cur_node = get_node(node_idx);
   CurNodeFlags* cur_node_flags = get_node_flags(node_idx);
   const NodeFlags* cur_orig_node_flags = get_node_orig_flags(node_idx);
-#if MY_DEBUG >= MY_DEBUG_LAYERS
+#if VERBOSE
   my_printf("Current node: %d, ", node_idx);
   my_printf("name = %.*s, ", NODE_NAME_LEN, cur_node->name);
   my_printf("output_name = %s, ", cur_node->output_name);
@@ -185,7 +185,7 @@ static void handle_node(Model* model, uint16_t node_idx) {
 
   allocators[cur_node->op_type](model, input, output, cur_node, cur_node_flags,
                                 cur_orig_node_flags);
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
   my_printf_debug("Needed mem = %d, dims=(", output->params_len);
   uint32_t minimum_params_len = sizeof(int16_t);
   for (uint8_t dim_idx = 0; dim_idx < 4; dim_idx++) {
@@ -233,7 +233,7 @@ static void handle_node(Model* model, uint16_t node_idx) {
 #endif
 }
 
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
 const float first_sample_outputs[] = FIRST_SAMPLE_OUTPUTS;
 #endif
 
@@ -269,14 +269,21 @@ static void run_model(uint16_t* ansptr, const ParameterInfo** output_node_ptr) {
     save_model_output_data();
   }
 
-  // the parameter info for the last node should also be refreshed when MY_DEBUG
-  // == 0 Otherwise, the model is not correctly re-initialized in some cases
+  // the parameter info for the last node should also be refreshed in release
+  // builds (DEBUG == 0); otherwise the model is not correctly re-initialized
   const ParameterInfo* output_node =
       get_parameter_info(MODEL_NODES_LEN + N_INPUT - 1);
   if (output_node_ptr) {
     *output_node_ptr = output_node;
   }
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
+  if (inference_results_vm.sample_idx == 0) {
+    my_printf("OUT slot=%d poff=%lu plen=%lu dims=%d,%d scale=%f" NEWLINE,
+              (int)output_node->slot, (unsigned long)output_node->params_offset,
+              (unsigned long)output_node->params_len,
+              (int)output_node->dims[0], (int)output_node->dims[1],
+              output_node->scale.toFloat());
+  }
   int16_t max = INT16_MIN;
   uint16_t u_ans;
   uint16_t ans_len = sizeof(first_sample_outputs) / sizeof(float);
@@ -301,6 +308,9 @@ static void run_model(uint16_t* ansptr, const ParameterInfo** output_node_ptr) {
 
 #if DYNAMIC_DNN_APPROACH != DYNAMIC_DNN_FINE_GRAINED
     if (inference_results_vm.sample_idx == 0) {
+      bool all_ok = true;
+      uint16_t first_bad_idx = 0;
+      float first_bad_got = 0, first_bad_expected = 0;
       uint16_t ofm_idx = buffer_offset;
       for (uint16_t buffer_idx = 0; buffer_idx < cur_buffer_len; buffer_idx++) {
         int16_t got_q15 = lea_buffer[buffer_idx];
@@ -309,14 +319,22 @@ static void run_model(uint16_t* ansptr, const ParameterInfo** output_node_ptr) {
               q15_to_float(got_q15, ValueInfo(output_node), nullptr);
           float expected = first_sample_outputs[ofm_idx];
           float error = fabs((got_real - expected) / output_max);
-          // Errors in CIFAR-10 are quite large...
-          MY_ASSERT(
-              error <= 0.1,
-              "Value error too large at index %d: got=%f, expected=%f" NEWLINE,
-              buffer_offset + buffer_idx, got_real, expected);
+          my_printf("DBG idx=%d q15=%d got=%f exp=%f" NEWLINE,
+                    buffer_offset + buffer_idx, (int)got_q15, got_real, expected);
+          if (all_ok && error > 0.1) {
+            all_ok = false;
+            first_bad_idx = buffer_offset + buffer_idx;
+            first_bad_got = got_real;
+            first_bad_expected = expected;
+          }
           ofm_idx++;
         }
       }
+      // Errors in CIFAR-10 are quite large...
+      MY_ASSERT(
+          all_ok,
+          "Value error too large at index %d: got=%f, expected=%f" NEWLINE,
+          first_bad_idx, first_bad_got, first_bad_expected);
     }
 #endif
 
@@ -337,7 +355,7 @@ uint8_t run_cnn_tests(uint16_t n_samples) {
   // -1 wraps to 0xFFFF, used as an invalid/uninitialized sentinel.
   uint16_t predicted = static_cast<uint16_t>(-1);
   const ParameterInfo* output_node;
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
   uint16_t label = static_cast<uint16_t>(-1);
   if (!n_samples) {
     n_samples = LABELS_DATA_LEN / sizeof(int16_t);
@@ -355,7 +373,7 @@ uint8_t run_cnn_tests(uint16_t n_samples) {
     my_printf_debug("Running sample %d" NEWLINE,
                     inference_results_vm.sample_idx);
     run_model(&predicted, &output_node);
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
     label = labels[inference_results_vm.sample_idx];
     inference_results_vm.total++;
     if (label == predicted) {
@@ -374,7 +392,7 @@ uint8_t run_cnn_tests(uint16_t n_samples) {
     inference_results_vm.sample_idx++;
     commit_versioned_data<InferenceResults>(0);
   }
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
   if (n_samples == 1) {
     dump_params(get_model(), output_node, "Output", "Output");
   }

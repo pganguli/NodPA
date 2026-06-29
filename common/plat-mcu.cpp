@@ -51,7 +51,9 @@
 #include "my_debug.h"
 #include "platform.h"
 #include "tools/dvfs.h"
+#if EXT_FRAM
 #include "tools/ext_fram/extfram.h"
+#endif
 #include "tools/myuart.h"
 #include "tools/our_misc.h"
 
@@ -59,6 +61,14 @@
 #define DATA_SECTION_NVM _Pragma("DATA_SECTION(\".nvm\")")
 #else
 #define DATA_SECTION_NVM
+#endif
+
+#if defined(__MSP430FR5962__) && !EXT_FRAM
+// Internal-FRAM NVM buffer.  Lives in the .nvm2 NOINIT section (FRAM2) so its
+// contents survive power cycles without being re-initialized at every reset.
+// Sized exactly to WRITABLE_NVM_SIZE from the generated data.h — if the model
+// is too large for FRAM2 the linker overflows and the build fails cleanly.
+__attribute__((section(".nvm2"))) static uint8_t internal_nvm[WRITABLE_NVM_SIZE];
 #endif
 
 #ifdef __MSP432__
@@ -131,10 +141,34 @@ void my_memcpy_from_parameters(void* dest, const ParameterInfo* param,
 }
 
 void read_from_nvm(void* vm_buffer, uint32_t nvm_offset, size_t n) {
+#if defined(__MSP430FR5962__) && !EXT_FRAM
+  // Internal-FRAM backend: route const-aliased read-only regions directly to
+  // their .const arrays; everything else reads from internal_nvm[].
+  if (nvm_offset >= PARAMETERS_OFFSET &&
+      nvm_offset < PARAMETERS_OFFSET + PARAMETERS_DATA_LEN) {
+    memcpy(vm_buffer,
+           parameters_data + (nvm_offset - PARAMETERS_OFFSET),
+           n);
+    return;
+  }
+  if (nvm_offset >= SAMPLES_OFFSET &&
+      nvm_offset < SAMPLES_OFFSET + SAMPLES_DATA_LEN) {
+    memcpy(vm_buffer,
+           samples_data + (nvm_offset - SAMPLES_OFFSET),
+           n);
+    return;
+  }
+  MY_ASSERT(nvm_offset + n <= WRITABLE_NVM_SIZE);
+  memcpy(vm_buffer, internal_nvm + nvm_offset, n);
+#else
+  // Flush any non-blocking write that may be in flight (FR5962 DMA path).
+  // SPI_WAIT_DMA() is a no-op when nothing is pending.
+  SPI_WAIT_DMA();
   SPI_ADDR addr;
   addr.L = nvm_offset;
   MY_ASSERT(n <= 1024);
   SPI_READ(&addr, reinterpret_cast<uint8_t*>(vm_buffer), n);
+#endif
 }
 
 struct GPIOPin {
@@ -144,8 +178,13 @@ struct GPIOPin {
 
 static const GPIOPin indicators[] = {
 #if defined(__MSP430FR5962__)
+#if EXT_FRAM
+    // P2.4 (D3) is FRAM SCK; use freed D8 pad (P5.2, was UCB1CLK).
+    {GPIO_PORT_P5, GPIO_PIN2},  // indicators[0]: notify_layer_finished()
+#else
     // D3 = P2.4 → TA1.0 timer output (layer-finished pulse, zero CPU cost).
     {GPIO_PORT_P2, GPIO_PIN4},  // indicators[0]: notify_layer_finished()
+#endif
 #elif defined(__MSP430__)
     {GPIO_PORT_P4, GPIO_PIN7},  // used in notify_layer_finished()
     {GPIO_PORT_P1, GPIO_PIN5},  // TODO: check if it works
@@ -175,36 +214,81 @@ static const GPIOPin gpio_flags[] = {
 
 void write_to_nvm(const void* vm_buffer, uint32_t nvm_offset, size_t n,
                   uint16_t timer_delay) {
+#if defined(__MSP430FR5962__) && !EXT_FRAM
+  // Internal-FRAM backend: direct store into internal_nvm[].
+  // Read-only ranges (parameters, samples) must never be written.
+  MY_ASSERT(nvm_offset + n <= WRITABLE_NVM_SIZE);
+  check_nvm_write_address(nvm_offset, n);
+  memcpy(internal_nvm + nvm_offset, vm_buffer, n);
+  // timer_delay is an SPI concept — not applicable internally.
+  (void)timer_delay;
+#else
+  // Flush any non-blocking write that may be in flight before starting a new
+  // one.  On non-FR5962 targets SPI_WAIT_DMA() is fast when idle; on the
+  // FR5962 it is a no-op when dma_write_pending == 0.
+  SPI_WAIT_DMA();
   SPI_ADDR addr;
   addr.L = nvm_offset;
   check_nvm_write_address(nvm_offset, n);
   MY_ASSERT(n <= 1024);
   SPI_WRITE2(&addr, reinterpret_cast<const uint8_t*>(vm_buffer), n,
              timer_delay);
+#if !defined(__MSP430FR5962__)
+  // Non-FR5962 targets: block for non-timer writes.  Timer writes remain async
+  // (the caller or the next NVM op will call SPI_WAIT_DMA).
   if (!timer_delay) {
     SPI_WAIT_DMA();
   }
+#endif
+  // FR5962: always async — SPI_WRITE2 sets dma_write_pending; the next NVM
+  // entry point's leading SPI_WAIT_DMA() will flush the transfer.
+#endif
 }
 
-void my_erase() { eraseFRAM2(0x00); }
+void my_erase() {
+#if defined(__MSP430FR5962__) && !EXT_FRAM
+  memset(internal_nvm, 0, WRITABLE_NVM_SIZE);
+#else
+  SPI_WAIT_DMA();  // flush any in-flight write before erasing
+  eraseFRAM2(0x00);
+#endif
+}
 
 void copy_data_to_nvm(void) {
+#if defined(__MSP430FR5962__) && !EXT_FRAM
+  // Internal-FRAM backend: parameters and samples are const-aliased (read
+  // directly from .const by read_from_nvm), so no copy is needed.
+  // Only node_flags needs to be written into the writable NVM buffer because
+  // it is mutated during inference (shadow copies for power-safe updates).
+  write_to_nvm_segmented(node_flags_data, NODE_FLAGS_OFFSET,
+                         NODE_FLAGS_DATA_LEN);
+#else
   write_to_nvm_segmented(samples_data, SAMPLES_OFFSET, SAMPLES_DATA_LEN);
   write_to_nvm_segmented(parameters_data, PARAMETERS_OFFSET,
                          PARAMETERS_DATA_LEN);
   write_to_nvm_segmented(node_flags_data, NODE_FLAGS_OFFSET,
                          NODE_FLAGS_DATA_LEN);
+#endif
 }
 
 [[noreturn]] void ERROR_OCCURRED(void) { while (1); }
 
 #if defined(__MSP430FR5962__)
-// Riotee: model-finished pulse on D2 = P2.3 (TA0.0 timer compare output).
-//         layer-finished  pulse on D3 = P2.4 (TA1.0 timer compare output).
-//         first_run trigger  on D4 = P4.6: bridge D4 to GND at boot to force first_run().
+// Riotee non-EXT_FRAM: model-finished pulse on D2=P2.3 (TA0.0 timer output);
+//                      layer-finished  pulse on D3=P2.4 (TA1.0 timer output).
+//                      first_run trigger on D4=P4.6 (bridge to GND at boot).
+// Riotee EXT_FRAM=1:   P2.3–P2.6 are FRAM SPI pins; use freed UCB1 pads:
+//                      model-finished pulse on D7=P5.3 (was UCB1 CS, plain GPIO).
+//                      layer-finished  pulse on D8=P5.2 (was UCB1CLK, plain GPIO).
+//                      first_run trigger remains D4=P4.6.
 // (D6 / PJ.6 is shared with nRF52 P1.03 which pulls it permanently low.)
+#if EXT_FRAM
+#define GPIO_COUNTER_PORT GPIO_PORT_P5
+#define GPIO_COUNTER_PIN GPIO_PIN3  // D7, freed from UCB1 CS by FRAM rewire
+#else
 #define GPIO_COUNTER_PORT GPIO_PORT_P2
 #define GPIO_COUNTER_PIN GPIO_PIN3
+#endif
 #define GPIO_RESET_PORT GPIO_PORT_P4
 #define GPIO_RESET_PIN GPIO_PIN6
 #elif defined(__MSP430__)
@@ -257,6 +341,7 @@ void IntermittentCNNTest() {
   GPIO_setAsOutputPin(GPIO_PORT_PJ, GPIO_PIN0);
   GPIO_setOutputHighOnPin(GPIO_PORT_PJ, GPIO_PIN0);
 
+#if !EXT_FRAM
   // P2.3 (D2, GPIO_COUNTER_PIN) → TA0.0 timer compare output: zero-CPU inference pulse.
   P2SEL0 |= BIT3;  P2SEL1 &= ~BIT3;  P2DIR |= BIT3;
   // P2.4 (D3, indicators[0]) → TA1.0 timer compare output: zero-CPU layer pulse.
@@ -264,25 +349,40 @@ void IntermittentCNNTest() {
   // Both timers: continuous mode, ACLK (VLO ~9.4 kHz). 5 ms pulse ≈ 47 ACLK ticks.
   TA0CTL = TASSEL__ACLK | MC__CONTINUOUS | TACLR;
   TA1CTL = TASSEL__ACLK | MC__CONTINUOUS | TACLR;
+  // EXT_FRAM=1: P2.3/P2.4 are FRAM SPI pins; counter/indicator use plain GPIO
+  // on freed D7/D8 pads (P5.3/P5.2).  TA1 is reserved for timer-paced writes.
+#endif  // !EXT_FRAM
 #else
   GPIO_setAsOutputPin(GPIO_PORT_P1, GPIO_PIN0);
   GPIO_setOutputHighOnPin(GPIO_PORT_P1, GPIO_PIN0);
 #endif
 
-  // sleep to wait for external FRAM
-  // 5ms / (1/f)
+#if !defined(__MSP430FR5962__) || EXT_FRAM
+  // Wait for external FRAM power-on: 5ms / (1/f)
   our_delay_cycles(5E-3 * getFrequency(FreqLevel));
 
   initSPI();
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
   if (testSPI() != 0) {
+    // Signal FRAM failure.  Without UART (EXT_FRAM=1 builds reclaim UCA1 for
+    // SPI), blink the counter GPIO rapidly so the problem is visible on a
+    // scope/logic analyser.
+#if !EXT_FRAM
     uartinit();
     print2uart("testSPI FAILED - check FRAM wiring\r\n");
+#else
+    GPIO_setAsOutputPin(GPIO_COUNTER_PORT, GPIO_COUNTER_PIN);
+    while (1) {
+      GPIO_toggleOutputOnPin(GPIO_COUNTER_PORT, GPIO_COUNTER_PIN);
+      our_delay_cycles(0.1 * getFrequency(FreqLevel));
+    }
+#endif
     volatile uint16_t counter = 1000;
     while (counter--);
     WDTCTL = 0;
   }
 #endif
+#endif  /* EXT_FRAM */
 
   load_model_from_nvm();
 
@@ -295,7 +395,7 @@ void IntermittentCNNTest() {
 #else
   if (need_reset()) {
 #endif
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
     uartinit();
     // To get counters in NVM after intermittent tests
     print_all_counters();
@@ -313,7 +413,7 @@ void IntermittentCNNTest() {
       run_cnn_tests(1);
     }
 
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
     my_printf("Done testing run" NEWLINE);
     // For platforms where counters are recorded in VM (ex: MSP432)
     print_all_counters();
@@ -372,14 +472,14 @@ static void gpio_pulse(uint8_t port, uint16_t pin) {
 void notify_layer_finished(void) { notify_indicator(0); }
 
 void notify_model_finished(void) {
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
   my_printf("." NEWLINE);
 #endif
   gpio_pulse(GPIO_COUNTER_PORT, GPIO_COUNTER_PIN);
 }
 
 void notify_indicator(uint8_t idx) {
-#if !ENABLE_DEMO_COUNTERS && MY_DEBUG >= MY_DEBUG_NORMAL
+#if !ENABLE_DEMO_COUNTERS && DEBUG
   my_printf("I%d" NEWLINE, idx);
 #endif
   gpio_pulse(indicators[idx].port, indicators[idx].pin);

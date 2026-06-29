@@ -1,32 +1,23 @@
-# NodPA firmware build for the MSP430FR5962 on the Riotee board.
+# NodPA firmware build for the MSP430FR5994 LaunchPad.
 #
-# Mirrors the known-good Riotee dummy build (cl430/lnk430/hex430 from CCS,
-# flashed via riotee-probe over SBW) but compiles the full NodPA source tree:
-# the common inference engine, the tools layer (UART/DVFS/external-FRAM SPI),
-# the TI DSPLib LEA subset, MSP430 driverlib, and the generated model data.
+# Uses the same TI cl430/lnk430/hex430 toolchain as the msp430fr5962 build.
+# Build-only: no flash target (program via CCS or UniFlash).
 #
 # Override CCS_ROOT to match your install, e.g.:
 #   make CCS_ROOT=~/ti/ccs2051/ccs release
 #
-# Named targets (each writes to its own build/<target>/ subdirectory):
+# Named targets:
 #   release   DEBUG=0, VERBOSE=0, -O3              [default]
 #   debug     DEBUG=1, VERBOSE=0, no opt + DWARF
-#   clean     remove build/ (covers release + debug output directories)
-#   flash     program whatever was built last via riotee-probe over SBW
+#   clean     remove build/
 #
 # Independent build variables (can be combined freely):
-#   EXT_FRAM=1  Route NVM through the external SPI FRAM on eUSCI_A1 (pads
-#               D0–D3, full-duplex DMA on Channels 1/2).  Default: 1 (external
-#               FRAM).  When EXT_FRAM=1 the debug UART (UCA1) is automatically
-#               disabled in code via #if !EXT_FRAM guards — DEBUG may still be
-#               1 (testSPI, GPIO counters, assertions all work).
-#   VERBOSE=1   Add per-layer/per-element tensor dumps on top of DEBUG.
-#               Implies DEBUG=1.
+#   EXT_FRAM=1  Use the external SPI FRAM chip (default: 1 per config.h).
+#   VERBOSE=1   Per-layer/element tensor dumps (implies DEBUG=1).
+#   DEBUG=1     Assertions, testSPI, accuracy prints.
 #
-# Examples:
-#   make debug EXT_FRAM=1          # debug + ext-FRAM, UART off, testSPI on
-#   make release EXT_FRAM=1        # release + ext-FRAM
-#   make debug VERBOSE=1           # debug + verbose dumps
+# build/data.h and build/data.cpp must be generated first:
+#   make -C .. data-<config>   (from the repo root)
 
 CCS_ROOT  ?= $(lastword $(sort $(wildcard $(HOME)/ti/ccs*/ccs)))
 COMPILER  ?= $(lastword $(sort $(wildcard $(CCS_ROOT)/tools/compiler/ti-cgt-msp430_*)))
@@ -47,16 +38,13 @@ CINC := $(COMPILER)/include
 
 PRJ      := $(CURDIR)
 ROOT     := $(abspath $(CURDIR)/..)
-# OUT is set per named target when it recurses into _build.
-# The ?= default is used only when _build is invoked directly.
 OUT      ?= $(PRJ)/build/release
-TARGET   := intermittent-cnn-msp430fr5962
-DRIVERLIB := $(ROOT)/msp430/driverlib/MSP430FR5xx_6xx
+TARGET   := intermittent-cnn-msp430fr5994
+DRIVERLIB := $(PRJ)/driverlib/MSP430FR5xx_6xx
 DSPLIB   := $(ROOT)/TI-DSPLib
 
-# ---- source lists -----------------------------------------------------------
+# ---- source lists -------------------------------------------------------------
 
-# Common inference engine (MCU platform -> plat-mcu.cpp, NOT plat-pc.cpp).
 COMMON_CPP := \
   intermittent-cnn.cpp op_handlers.cpp op_utils.cpp conv.cpp counters.cpp \
   fc.cpp pooling.cpp cnn_common.cpp my_debug.cpp plat-mcu.cpp platform.cpp \
@@ -64,9 +52,6 @@ COMMON_CPP := \
   gather.cpp broadcasted_binary_op.cpp
 SRC_CPP := $(addprefix $(ROOT)/common/,$(COMMON_CPP)) $(ROOT)/build/data.cpp
 
-# Tools: C sources + the delay-loop assembler routine.
-# EXT_FRAM=0: omit the SPI FRAM driver entirely — internal FRAM only.
-# EXT_FRAM=1 (default): include extfram.c for the external SPI FRAM chip.
 EXT_FRAM ?= 1
 ifeq ($(EXT_FRAM),1)
 SRC_C   := $(ROOT)/tools/dvfs.c $(ROOT)/tools/myuart.c \
@@ -76,7 +61,6 @@ SRC_C   := $(ROOT)/tools/dvfs.c $(ROOT)/tools/myuart.c
 endif
 SRC_ASM := $(ROOT)/tools/our_misc.s
 
-# TI DSPLib subset actually referenced by my_dsplib.cpp + the LEA runtime.
 DSP_C := \
   source/matrix/msp_matrix_mpy_q15.c \
   source/vector/msp_add_q15.c source/vector/msp_offset_q15.c \
@@ -89,13 +73,10 @@ DSP_C := \
   source/lea/msp_lea_flags.c source/lea/msp_lea_patch.c
 SRC_C += $(addprefix $(DSPLIB)/,$(DSP_C))
 
-# MSP430 driverlib (whole FR5xx_6xx family library).
 SRC_C += $(wildcard $(DRIVERLIB)/*.c)
-
-# The board entry point.
 SRC_C += $(PRJ)/main.c
 
-# ---- objects ----------------------------------------------------------------
+# ---- objects -----------------------------------------------------------------
 OBJ := $(addprefix $(OUT)/,$(notdir $(SRC_CPP:.cpp=.obj))) \
        $(addprefix $(OUT)/,$(notdir $(SRC_C:.c=.obj))) \
        $(addprefix $(OUT)/,$(notdir $(SRC_ASM:.s=.obj)))
@@ -104,7 +85,7 @@ vpath %.cpp $(sort $(dir $(SRC_CPP)))
 vpath %.c   $(sort $(dir $(SRC_C)))
 vpath %.s   $(sort $(dir $(SRC_ASM)))
 
-# ---- flags ------------------------------------------------------------------
+# ---- flags -------------------------------------------------------------------
 INCLUDES := \
   --include_path=$(INC) --include_path=$(CINC) \
   --include_path=$(PRJ) \
@@ -114,20 +95,15 @@ INCLUDES := \
   --include_path=$(DSPLIB)/include \
   --include_path=$(DRIVERLIB)
 
-# Build-variable defaults (all overridable on the command line).
-# DEBUG=0/1   — assertions, testSPI, accuracy prints, GPIO counters.
-# VERBOSE=0/1 — per-layer/element tensor dumps (implies DEBUG=1).
-# EXT_FRAM=0/1 — NVM backend: internal (0) or external SPI FRAM on UCA1 (1).
-#   EXT_FRAM=1 disables the debug UART in code (#if !EXT_FRAM) — DEBUG may
-#   still be 1 since testSPI and GPIO counters do not need the UART.
 DEBUG      ?= 0
 VERBOSE    ?= 0
 STACK_SIZE ?= 0x200
 
 DEFINES = \
-  --define=__MSP430FR5962__ --define=MSP_DISABLE_DIAGNOSTICS \
+  --define=__MSP430__ --define=__MSP430FR5994__ \
+  --define=MSP_DISABLE_DIAGNOSTICS \
   --define=DEBUG=$(DEBUG) --define=VERBOSE=$(VERBOSE) \
-  --define=USE_ARM_CMSIS=0 --define=LEA_BUFFER_SIZE=1884 \
+  --define=USE_ARM_CMSIS=0 --define=LEA_BUFFER_SIZE=4096 \
   --define=EXT_FRAM=$(EXT_FRAM)
 
 OPT ?= --opt_level=3
@@ -141,11 +117,7 @@ COMMON_FLAGS = -vmspx --abi=eabi --data_model=large --code_model=large \
 CFLAGS_C   = $(COMMON_FLAGS) --c99
 CFLAGS_CPP = $(COMMON_FLAGS) --c++14
 
-# Each named target recurses into _build with all variables set on the command
-# line.  This is necessary because EXT_FRAM affects the source list (ifeq at
-# parse time), so it must be correct in the sub-make at re-parse time.
-
-.PHONY: all debug release _build clean flash
+.PHONY: all debug release _build clean
 
 all: release
 
@@ -162,9 +134,8 @@ debug:
 	  OUT=$(PRJ)/build/debug
 
 _build: $(OUT)/$(TARGET).hex
-	@echo $< > $(PRJ)/build/.last_built
 
-# ---- compile rules ----------------------------------------------------------
+# ---- compile rules -----------------------------------------------------------
 $(OUT)/%.obj: %.cpp $(PRJ)/Makefile | $(OUT)
 	$(CL) $(CFLAGS_CPP) --obj_directory=$(OUT) -c $<
 $(OUT)/%.obj: %.c $(PRJ)/Makefile | $(OUT)
@@ -172,10 +143,7 @@ $(OUT)/%.obj: %.c $(PRJ)/Makefile | $(OUT)
 $(OUT)/%.obj: %.s $(PRJ)/Makefile | $(OUT)
 	$(CL) $(CFLAGS_C) --obj_directory=$(OUT) -c $<
 
-# ---- link + hex -------------------------------------------------------------
-# Drive the link through cl430 (--run_linker) so the MSP430X/large-model ISA
-# attributes from the objects are propagated to the linker and the correct
-# large-model RTS variant is selected from the libc.a index.
+# ---- link + hex --------------------------------------------------------------
 $(OUT)/$(TARGET).hex: $(OBJ)
 	$(CL) -vmspx --abi=eabi --data_model=large --code_model=large \
 	  --use_hw_mpy=F5 --run_linker \
@@ -183,7 +151,7 @@ $(OUT)/$(TARGET).hex: $(OBJ)
 	  --heap_size=160 --stack_size=$(STACK_SIZE) \
 	  -i$(LIB) -i$(INC) \
 	  --output_file=$(OUT)/$(TARGET).out --map_file=$(OUT)/$(TARGET).map \
-	  $(OBJ) $(PRJ)/lnk_msp430fr5962.cmd \
+	  $(OBJ) $(PRJ)/lnk_msp430fr5994.cmd \
 	  --library=libc.a --rom_model
 	$(HEX) --intel --romwidth=8 --memwidth=8 --fill=0xFF \
 	  -o $(OUT)/$(TARGET).hex $(OUT)/$(TARGET).out
@@ -193,14 +161,3 @@ $(OUT):
 
 clean:
 	rm -rf $(PRJ)/build
-
-# SBW programming: programs whatever was built last (release, debug, or
-# debug-ext-fram).  Run a build target first; flash reads the hex path
-# recorded in build/.last_built by the most recent _build invocation.
-flash:
-	@test -f $(PRJ)/build/.last_built || \
-	  { echo "Nothing built yet — run 'make release', 'make debug', or 'make debug-ext-fram' first."; exit 1; }
-	riotee-probe bypass --on
-	sleep 1
-	riotee-probe program -d msp430 -f $$(cat $(PRJ)/build/.last_built)
-	riotee-probe target-power --on

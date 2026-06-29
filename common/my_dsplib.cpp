@@ -49,7 +49,7 @@
 #include "platform.h"
 
 #if !USE_ARM_CMSIS
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
 #define my_checkStatus(expr)                                             \
   do {                                                                   \
     msp_status status = (expr);                                          \
@@ -61,7 +61,7 @@
 #endif
 #endif
 
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+#if DEBUG
 static uint8_t check_buffer_address_with_base(const int16_t* base_addr,
                                               uint32_t whole_buffer_size,
                                               const int16_t* addr,
@@ -277,8 +277,7 @@ void my_matrix_mpy_q15(uint16_t A_rows, uint16_t A_cols, uint16_t B_rows,
                          values_to_preserve * sizeof(int16_t), 0, true);
     }
 #endif  // __MSP432__
-    (void)status;  // Suppress -Wunused-variable when MY_DEBUG ==
-                   // MY_DEBUG_NO_ASSERT
+    (void)status;  // Suppress -Wunused-variable in release builds (DEBUG == 0)
 
     // Moving to the next row of matrix A
     pSrcA += A_cols;

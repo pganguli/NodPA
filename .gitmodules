@@ -14,3 +14,6 @@
 	path = ARM-CMSIS
 	url = ../ARM-CMSIS.git
 	branch = riotee
+[submodule "Riotee_SDK"]
+	path = Riotee_SDK
+	url = https://github.com/NessieCircuits/Riotee_SDK

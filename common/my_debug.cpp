@@ -20,7 +20,7 @@
 // compare_vm_nvm_impl
 //   After a DMA or LEA write: reads back the same range from NVM and asserts
 //   every element matches what is in SRAM.  Stripped to a no-op in release
-//   builds (MY_DEBUG < MY_DEBUG_NORMAL).
+//   builds (!DEBUG).
 //
 // check_nvm_write_address_impl
 //   Validates that an NVM write falls within a safe region and is aligned to
@@ -194,7 +194,7 @@ static void extract_dimensions(const ParameterInfo* cur_param, uint16_t* NUM,
 }
 
 static bool check_ofm_dumped(const ParameterInfo* cur_param) {
-#if MY_DEBUG >= MY_DEBUG_LAYERS
+#if VERBOSE
   uint16_t node_idx = cur_param->parameter_info_idx - N_INPUT;
   NodeFlags* node_flags = get_node_flags(node_idx);
 
@@ -333,7 +333,7 @@ void dump_matrix(const int16_t* mat, size_t rows, size_t cols,
   my_printf(NEWLINE);
 }
 
-#if MY_DEBUG >= MY_DEBUG_NORMAL && \
+#if DEBUG && \
     DYNAMIC_DNN_APPROACH != DYNAMIC_DNN_FINE_GRAINED
 
 static const uint16_t BUFFER_TEMP_SIZE = 16;
@@ -381,7 +381,7 @@ void dump_footprints(uint16_t layer_idx) {
 #if HAWAII &&                                                         \
     (DYNAMIC_DNN_APPROACH == DYNAMIC_DNN_MULTIPLE_INDICATORS_BASIC || \
      DYNAMIC_DNN_APPROACH == DYNAMIC_DNN_MULTIPLE_INDICATORS) &&      \
-    MY_DEBUG >= MY_DEBUG_VERBOSE
+    VERBOSE
   for (uint8_t copy_id = 0; copy_id < 2; copy_id++) {
     Footprint tmp_footprint;
 

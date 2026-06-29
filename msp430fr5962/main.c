@@ -5,12 +5,25 @@
  * Differences from the 5994 LaunchPad:
  *   - No 32.768 kHz LFXT crystal on the Riotee module.  ACLK is sourced from
  *     the internal VLO (~9.4 kHz); MCLK/SMCLK run from the DCO at 16 MHz.
- *   - Debug UART is UCA1 on D1/TX = P2.5 (and D0/RX = P2.6), bridged to USB by
- *     the board's RP2040.  (eUSCI_A0 / P2.0-P2.1 is reserved for the C2C link
- *     to the nRF52 and must not be reconfigured here.)  Pin function selection
- *     for the UART is done in tools/myuart.c:uartinit().
- *   - The external SPI FRAM is on eUSCI_B1 / P5.0-P5.3; those pins are set up
- *     in tools/ext_fram/extfram.c:initSPI(), not here.
+ *
+ *   - Debug UART (EXT_FRAM=0 builds only):
+ *       UCA1 on D1/TX = P2.5 (UCA1SIMO), D0/RX = P2.6 (UCA1SOMI), bridged
+ *       to USB by the board's RP2040.  eUSCI_A0 / P2.0-P2.1 is reserved for
+ *       the C2C link to the nRF52.  Pin function selection is done in
+ *       tools/myuart.c:uartinit().
+ *
+ *   - External SPI FRAM (EXT_FRAM=1 builds):
+ *       eUSCI_A1 on pads D0–D3 (P2.3–P2.6) with full-duplex DMA:
+ *         D1/P2.5 = UCA1SIMO (FRAM SI),  D0/P2.6 = UCA1SOMI (FRAM SO),
+ *         D3/P2.4 = UCA1CLK  (FRAM SCK), D2/P2.3 = GPIO CS.
+ *       UCB1 / P5.0-P5.3 (D7–D10) is NOT used because UCB1RXIFG and
+ *       UCB1TXIFG both map to only DMA Channel 3 on the FR5962 (datasheet
+ *       Table 9-11), making simultaneous full-duplex DMA impossible.
+ *       Because UCA1 is claimed by the FRAM, the debug UART is disabled in
+ *       EXT_FRAM=1 builds; the counter/indicator pins also move from P2.3/P2.4
+ *       to freed pads P5.3/P5.2 (D7/D8).  See extfram.c:initSPI() for the
+ *       pin-mux setup.
+ *
  *   - PWRGD_L (P5.4) and PWRGD_H (P5.5) are the capacitor-voltage comparator
  *     outputs; left as inputs for the (future) intermittent-power path.
  *
@@ -34,8 +47,10 @@ int main(void) {
 
   /* Initialize UART before IntermittentCNNTest() so that any failure inside
    * (e.g. testSPI triggering a watchdog reset) produces visible output rather
-   * than a silent reset loop. */
-#if MY_DEBUG >= MY_DEBUG_NORMAL
+   * than a silent reset loop.
+   * EXT_FRAM=1: UCA1 / P2.5-P2.6 are reclaimed for FRAM SPI; debug UART is
+   * unavailable in this configuration. */
+#if DEBUG && !EXT_FRAM
   uartinit();
   print2uart("NodPA FR5962: starting\r\n");
 #endif
@@ -65,12 +80,17 @@ static void prvSetupHardware(void) {
   GPIO_setAsOutputPin(GPIO_PORT_P4, 0xFF);
   GPIO_setAsOutputPin(GPIO_PORT_PJ, 0xFFFF);
 
-  /* Debug UART on UCA1: D1/TX = P2.5 (UCA1TXD), D0/RX = P2.6 (UCA1RXD),
-   * secondary module function.  Baud configuration happens in uartinit(). */
+  /* Debug UART on UCA1 (EXT_FRAM=0 only): D1/TX = P2.5 (UCA1TXD),
+   * D0/RX = P2.6 (UCA1RXD), secondary module function.  Baud configuration
+   * happens in uartinit().
+   * EXT_FRAM=1: P2.3–P2.6 are claimed by the FRAM SPI (UCA1 in SPI mode);
+   * initSPI() in extfram.c sets up the correct pin mux. */
+#if !EXT_FRAM
   GPIO_setAsPeripheralModuleFunctionOutputPin(GPIO_PORT_P2, GPIO_PIN5,
                                               GPIO_SECONDARY_MODULE_FUNCTION);
   GPIO_setAsPeripheralModuleFunctionInputPin(GPIO_PORT_P2, GPIO_PIN6,
                                              GPIO_SECONDARY_MODULE_FUNCTION);
+#endif  /* !EXT_FRAM */
 
   /* Capacitor-voltage comparator outputs as inputs (used by the intermittent
    * power path; harmless for stable-power bring-up). */

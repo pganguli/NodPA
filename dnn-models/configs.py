@@ -95,4 +95,17 @@ configs: dict[str, ConfigType] = {
         "op_filters": 4,
         "pruning_threshold": 0.5,
     },
+    # HAR without input-channel pruning — required for internal-FRAM builds where
+    # pruning_threshold=0.5 would inflate slot sizes beyond available FRAM.
+    "har-int": {
+        "onnx_model": "har_har_cnn-batched",
+        "onnx_model_single": "har_har_cnn-single",
+        "scale": 1,
+        "input_scale": 48,
+        "num_slots": 3,
+        "data_loader": load_har,
+        "n_all_samples": 2947,
+        "op_filters": 4,
+        "pruning_threshold": 0,
+    },
 }

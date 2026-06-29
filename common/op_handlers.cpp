@@ -75,7 +75,7 @@ void handle_relu(Model* model, const ParameterInfo* input[],
       vals[j] = MAX_VAL(vals[j], 0);
     }
 
-#if MY_DEBUG >= MY_DEBUG_VERBOSE
+#if VERBOSE
     my_printf_debug("output_offset=[% 6d, % 6d), output_val=", output_offset,
                     output_offset + cur_tile_size);
     for (uint8_t j = 0; j < cur_tile_size; j++) {

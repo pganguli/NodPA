@@ -1,6 +1,6 @@
 // CurNodeFlags type alias for per-node flags at execution time.
 //
-// In release builds (MY_DEBUG < MY_DEBUG_LAYERS and no demo counters), node
+// In release builds (!VERBOSE and no demo counters), node
 // flags are never written during inference, so we alias CurNodeFlags to the
 // const variant.  This lets the compiler catch accidental writes and avoids
 // the NVM round-trip that commit_node_flags() would otherwise do.
@@ -13,7 +13,7 @@
 
 #include "config.h"
 
-#if MY_DEBUG >= MY_DEBUG_LAYERS || ENABLE_DEMO_COUNTERS
+#if VERBOSE || ENABLE_DEMO_COUNTERS
 typedef struct NodeFlags CurNodeFlags;
 #else
 typedef const struct NodeFlags CurNodeFlags;

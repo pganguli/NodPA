@@ -19,7 +19,7 @@
 //   -f            — print raw integer Q15 values instead of floats.
 //   -n PATH       — use PATH instead of nvm.bin.
 //   -s OUT.pb     — serialize layer outputs to a protobuf file (requires
-//                   USE_PROTOBUF and MY_DEBUG >= MY_DEBUG_LAYERS).
+//                   USE_PROTOBUF and VERBOSE).
 //   [n_samples]   — number of test samples to evaluate (0 = all).
 //
 // LeakSanitizer is disabled (see __lsan_is_turned_off) because it uses ptrace
@@ -123,7 +123,7 @@ int main(int argc, char* argv[]) {
         shutdown_counter_enabled = true;
         break;
       case 's':
-#if defined(USE_PROTOBUF) && MY_DEBUG >= MY_DEBUG_LAYERS
+#if defined(USE_PROTOBUF) && VERBOSE
         out_file.open(optarg);
         break;
 #else

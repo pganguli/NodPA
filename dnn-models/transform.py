@@ -16,6 +16,7 @@ import enum
 import io
 import itertools
 import logging
+import math
 import os.path
 import pathlib
 import textwrap
@@ -49,6 +50,7 @@ from utils import (
     find_initializer,
     find_node_by_input,
     find_node_by_output,
+    find_tensor_value_info,
     get_model_ops,
     infer_auto_pad,
     load_model,
@@ -112,6 +114,7 @@ class Constants:
     NVM_SIZE = 1024 * 1024
     ORIG_NVM_SIZE = NVM_SIZE
     INTERMEDIATE_VALUES_SIZE = 0  # will be filled by nvm_layout()
+    WRITABLE_NVM_SIZE = 0  # will be filled by nvm_layout(); usable by internal-FRAM builds
     N_SAMPLES = 1
     LEA_BUFFER_SIZE = 0
     OUTPUT_LEN = OUTPUT_LEN
@@ -239,6 +242,15 @@ parser.add_argument(
 intermittent_methodology = parser.add_mutually_exclusive_group(required=True)
 intermittent_methodology.add_argument("--ideal", action="store_true")
 intermittent_methodology.add_argument("--hawaii", action="store_true")
+parser.add_argument(
+    "--internal-fram",
+    action="store_true",
+    help="Compute the minimal NVM slot size for an internal-FRAM-only build (no "
+    "external SPI chip). Sets INTERMEDIATE_VALUES_SIZE to the smallest value for "
+    "which all layer tiles still fit (the max Conv output-tensor size), instead of "
+    "greedily filling the external chip. Also emits WRITABLE_NVM_SIZE in data.h. "
+    "The build will fail at link time if the model is too large for internal FRAM.",
+)
 args = parser.parse_args()
 if args.debug:
     logging.getLogger("intermittent-cnn").setLevel(logging.DEBUG)
@@ -825,7 +837,9 @@ outputs["counters"].write(
 
 
 def nvm_layout():
-    # See common/platform.h; some items are duplicated for double buffering
+    # See common/platform.h; some items are duplicated for double buffering.
+    # "nodes" and "parameters" are read-only blobs copied into NVM at first_run;
+    # "model" appears twice for the two shadow copies.
     nvm_data_names = [
         "inference_stats",
         "model",
@@ -848,11 +862,79 @@ def nvm_layout():
         remaining_size -= cur_data_size
     # Size for samples are different for plat-pc and plat-mcu
     remaining_size -= 2 * config["total_sample_size"]
-    # intermediate_values_size should < 65536, or TI's compiler gets confused
-    Constants.INTERMEDIATE_VALUES_SIZE = (
-        int((remaining_size / config["num_slots"]) / 16) * 16
-    )
+
+    if args.internal_fram:
+        # For an internal-FRAM build, set INTERMEDIATE_VALUES_SIZE to the minimum
+        # feasible value: the largest params_len across all Conv nodes, using the
+        # same input_tile_c selection logic as determine_conv_tile_c().
+        # params_len = ceil(CHANNEL / input_tile_c) * OUT_CH * H * W * 2
+        # With no input tiling (input_tile_c = CHANNEL): params_len = OUT_CH*H*W*2.
+        # With full input tiling (input_tile_c = 1, pruning case):
+        #   params_len = CHANNEL * OUT_CH * H * W * 2 (larger).
+        # This is the exact floor below which determine_conv_tile_c() cannot tile.
+        # The linker enforces fit against the actual internal FRAM capacity.
+        slot_floor = 0
+        for n in nodes:
+            if n.op_type == "Conv":
+                out_vi = find_tensor_value_info(onnx_model, n.output[0])
+                dims = [d.dim_value for d in out_vi.type.tensor_type.shape.dim]
+                filter_info = find_initializer(onnx_model, n.input[1])
+                n_input_ch = filter_info.dims[1]
+                out_ch, out_h, out_w = dims[1], dims[2], dims[3]
+                conv_flags = n.flags.conv
+                # Mirror input_tile_c selection from determine_conv_tile_c()
+                if (not conv_flags.pruning_threshold
+                        or conv_flags.pruning_target == PRUNING_OUTPUT_CHANNELS):
+                    input_tile_c = n_input_ch
+                else:
+                    input_tile_c = 2 if args.model_variant == "static" else 1
+                min_params_len = (
+                    math.ceil(n_input_ch / input_tile_c) * out_ch * out_h * out_w * 2
+                )
+                slot_floor = max(slot_floor, min_params_len)
+        if slot_floor == 0:
+            raise ValueError("--internal-fram: no Conv nodes found in model")
+        # Align to 16 bytes (required by TI compiler for INTERMEDIATE_VALUES_SIZE)
+        Constants.INTERMEDIATE_VALUES_SIZE = int((slot_floor + 15) / 16) * 16
+        logger.info(
+            "--internal-fram: params_len floor=%d, INTERMEDIATE_VALUES_SIZE=%d",
+            slot_floor, Constants.INTERMEDIATE_VALUES_SIZE,
+        )
+    else:
+        # intermediate_values_size should < 65536, or TI's compiler gets confused
+        Constants.INTERMEDIATE_VALUES_SIZE = (
+            int((remaining_size / config["num_slots"]) / 16) * 16
+        )
     logger.debug("INTERMEDIATE_VALUES_SIZE=%d", Constants.INTERMEDIATE_VALUES_SIZE)
+
+    # WRITABLE_NVM_SIZE: total bytes that must reside in writable NVM.
+    # For EXT_FRAM builds this is informational; for internal-FRAM builds the C
+    # code allocates a .nvm2 buffer of exactly this size.
+    # Includes: activation slots + all bookkeeping structs.
+    # Excludes: parameters, nodes, samples — these are const-aliased from .const
+    # in internal-FRAM builds and copied into NVM in external-FRAM builds.
+    writable_data_names = [
+        "inference_stats",
+        "model",
+        "model",  # two shadow copies
+        "intermediate_parameters_info",
+        "node_flags",
+        "footprints",
+        "counters",
+        "inference_results",
+    ]
+    writable_bookkeeping = 0
+    for data_name in writable_data_names:
+        if data_name in outputs:
+            writable_bookkeeping += outputs[data_name].tell()
+        else:
+            writable_bookkeeping += sum(
+                ffi.sizeof(item) for item in ffi_objects[data_name]
+            )
+    Constants.WRITABLE_NVM_SIZE = (
+        config["num_slots"] * Constants.INTERMEDIATE_VALUES_SIZE + writable_bookkeeping
+    )
+    logger.debug("WRITABLE_NVM_SIZE=%d", Constants.WRITABLE_NVM_SIZE)
 
 
 nvm_layout()
@@ -930,7 +1012,7 @@ struct NodeFlags;
 
         # Making it long to avoid overflow for expressions like
         # INTERMEDIATE_VALUES_SIZE * NUM_SLOTS on 16-bit systems
-        suffix = "l" if item == "INTERMEDIATE_VALUES_SIZE" else ""
+        suffix = "l" if item in ("INTERMEDIATE_VALUES_SIZE", "WRITABLE_NVM_SIZE") else ""
         output_h.write(f"#define {item.upper()} ")
         if isinstance(val, str):
             output_h.write(f'"{val}"')

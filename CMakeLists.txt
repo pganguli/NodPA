@@ -1,8 +1,19 @@
 cmake_minimum_required(VERSION 3.5)  # for CMAKE_CXX_STANDARD
 
+# NOTE: This CMakeLists.txt is CLANGD / IDE tooling only.
+# It is NOT used for any actual build (PC or MCU).  All builds are driven
+# by the GNU Makefile at the repository root.  Run:
+#   cmake -B build-clangd   (from the repo root, once, to get compile_commands.json)
+# Do NOT run `cmake --build build-clangd` — it will fail (data.cpp not present).
+#
+# The intermittent-cnn executable target below exists solely so that clangd
+# sees the right include paths and compile flags for common/*.cpp.  The
+# plat-mcu library exposes __MSP432__ paths for plat-mcu.cpp cross-analysis.
+
 project(intermittent-cnn)
 
-set(MY_DEBUG "1" CACHE STRING "Local debug flag. See my_debug.h for details.")
+option(DEBUG   "Enable assertions, testSPI, accuracy prints" OFF)
+option(VERBOSE "Enable per-layer/element tensor dumps (implies DEBUG)" OFF)
 option(USE_PROTOBUF "Use Protobuf to save results" OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -10,13 +21,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 # Too many parameters are unused if some features are not enabled
 set(COMMON_FLAGS "-Wall -Wextra -Wshadow -Wundef -Wno-unused-parameter -Werror=undef -pedantic")
-if (${MY_DEBUG} GREATER 1)
-    set(COMMON_FLAGS "${COMMON_FLAGS} -g3 -O0")
+if (DEBUG)
+    set(COMMON_FLAGS "${COMMON_FLAGS} -g3 -O0 -fsanitize=address")
 else ()
     set(COMMON_FLAGS "${COMMON_FLAGS} -O3")
-endif ()
-if (${MY_DEBUG} GREATER 2)
-    set(COMMON_FLAGS "${COMMON_FLAGS} -fsanitize=address")
 endif ()
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${COMMON_FLAGS} -Wstrict-prototypes")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_FLAGS} -Wold-style-cast -Wsuggest-override -Wnon-virtual-dtor")
@@ -66,6 +74,14 @@ else ()
     # However, the latest protobuf & absl on Arch Linux require C++17
     set(CMAKE_CXX_STANDARD 17)
 endif ()
+
+# DATA_DIR: directory containing generated data.h / data.cpp.
+# Defaults to the CMake build dir (in-tree build/ works); override when the
+# root Makefile builds the PC target in a separate build-pc/ directory so it
+# can share the common build/data.{h,cpp} with the MCU targets:
+#   cmake -DDATA_DIR=<repo>/build -B build-pc
+set(DATA_DIR "${CMAKE_BINARY_DIR}" CACHE PATH
+    "Directory containing generated data.h and data.cpp")
 
 set(COMMON_SRC_PATH ${CMAKE_CURRENT_SOURCE_DIR}/common)
 
@@ -151,20 +167,21 @@ set (intermittent_cnn_SOURCES
     ${COMMON_SRC_PATH}/argmax.cpp
     ${COMMON_SRC_PATH}/gather.cpp
     ${COMMON_SRC_PATH}/broadcasted_binary_op.cpp
-    ${CMAKE_BINARY_DIR}/data.cpp
+    ${DATA_DIR}/data.cpp
 )
 add_executable(intermittent-cnn ${intermittent_cnn_SOURCES})
 
 target_compile_definitions(intermittent-cnn
     PRIVATE
         PC_BUILD
-        MY_DEBUG=${MY_DEBUG}
+        DEBUG=$<BOOL:${DEBUG}>
+        VERBOSE=$<BOOL:${VERBOSE}>
 )
 
 target_include_directories(intermittent-cnn
     PRIVATE
         ${COMMON_SRC_PATH}
-        ${CMAKE_BINARY_DIR}
+        ${DATA_DIR}
 )
 
 target_link_libraries(intermittent-cnn arm_cmsis_dsp dsplib)
