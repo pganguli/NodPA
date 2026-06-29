@@ -62,6 +62,10 @@
 #if !defined(__MSP430FR5962__) || EXT_FRAM
 static_assert(COUNTERS_OFFSET >= PARAMETERS_OFFSET + PARAMETERS_DATA_LEN,
               "Incorrect NVM layout");
+#else
+static_assert(
+    INFERENCE_STATS_OFFSET + INFERENCE_STATS_DATA_LEN <= WRITABLE_NVM_SIZE,
+    "Internal-FRAM NVM layout overflows WRITABLE_NVM_SIZE");
 #endif
 
 static const uint8_t FOOTPRINT_SIZE = 2;

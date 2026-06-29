@@ -146,6 +146,7 @@ void read_from_nvm(void* vm_buffer, uint32_t nvm_offset, size_t n) {
   // their .const arrays; everything else reads from internal_nvm[].
   if (nvm_offset >= PARAMETERS_OFFSET &&
       nvm_offset < PARAMETERS_OFFSET + PARAMETERS_DATA_LEN) {
+    MY_ASSERT(nvm_offset - PARAMETERS_OFFSET + n <= PARAMETERS_DATA_LEN);
     memcpy(vm_buffer,
            parameters_data + (nvm_offset - PARAMETERS_OFFSET),
            n);
@@ -153,6 +154,7 @@ void read_from_nvm(void* vm_buffer, uint32_t nvm_offset, size_t n) {
   }
   if (nvm_offset >= SAMPLES_OFFSET &&
       nvm_offset < SAMPLES_OFFSET + SAMPLES_DATA_LEN) {
+    MY_ASSERT(nvm_offset - SAMPLES_OFFSET + n <= SAMPLES_DATA_LEN);
     memcpy(vm_buffer,
            samples_data + (nvm_offset - SAMPLES_OFFSET),
            n);
@@ -371,8 +373,10 @@ void IntermittentCNNTest() {
     uartinit();
     print2uart("testSPI FAILED - check FRAM wiring\r\n");
 #else
+    // Blink the counter pin rapidly so the fault is visible on a scope, then
+    // reset via WDT password violation.
     GPIO_setAsOutputPin(GPIO_COUNTER_PORT, GPIO_COUNTER_PIN);
-    while (1) {
+    for (uint8_t i = 0; i < 20; i++) {
       GPIO_toggleOutputOnPin(GPIO_COUNTER_PORT, GPIO_COUNTER_PIN);
       our_delay_cycles(0.1 * getFrequency(FreqLevel));
     }

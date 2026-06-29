@@ -35,7 +35,7 @@
 ROOT := $(CURDIR)
 
 # Pass-through vars with defaults.
-EXT_FRAM ?= 0
+EXT_FRAM ?= 1
 VERBOSE  ?= 0
 TARGET   ?= msp430
 

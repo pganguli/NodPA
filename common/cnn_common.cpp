@@ -299,6 +299,14 @@ static void run_model(uint16_t* ansptr, const ParameterInfo** output_node_ptr) {
 
   uint16_t buffer_len = LIMIT_DMA_SIZE(ans_len);
 
+#if DYNAMIC_DNN_APPROACH != DYNAMIC_DNN_FINE_GRAINED
+  // Hoisted outside the chunk loop so errors from an earlier chunk are not
+  // overwritten by a clean later chunk.
+  bool all_ok = true;
+  uint16_t first_bad_idx = 0;
+  float first_bad_got = 0, first_bad_expected = 0;
+#endif
+
   for (uint16_t buffer_offset = 0; buffer_offset < ans_len;
        buffer_offset += buffer_len) {
     uint16_t cur_buffer_len = MIN_VAL(buffer_len, ans_len - buffer_offset);
@@ -308,33 +316,26 @@ static void run_model(uint16_t* ansptr, const ParameterInfo** output_node_ptr) {
 
 #if DYNAMIC_DNN_APPROACH != DYNAMIC_DNN_FINE_GRAINED
     if (inference_results_vm.sample_idx == 0) {
-      bool all_ok = true;
-      uint16_t first_bad_idx = 0;
-      float first_bad_got = 0, first_bad_expected = 0;
       uint16_t ofm_idx = buffer_offset;
       for (uint16_t buffer_idx = 0; buffer_idx < cur_buffer_len; buffer_idx++) {
         int16_t got_q15 = lea_buffer[buffer_idx];
-        {
-          float got_real =
-              q15_to_float(got_q15, ValueInfo(output_node), nullptr);
-          float expected = first_sample_outputs[ofm_idx];
-          float error = fabs((got_real - expected) / output_max);
+        float got_real =
+            q15_to_float(got_q15, ValueInfo(output_node), nullptr);
+        float expected = first_sample_outputs[ofm_idx];
+        float error = fabs((got_real - expected) / output_max);
+        if (all_ok) {
           my_printf("DBG idx=%d q15=%d got=%f exp=%f" NEWLINE,
-                    buffer_offset + buffer_idx, (int)got_q15, got_real, expected);
-          if (all_ok && error > 0.1) {
+                    buffer_offset + buffer_idx, (int)got_q15, got_real,
+                    expected);
+          if (error > 0.1) {
             all_ok = false;
             first_bad_idx = buffer_offset + buffer_idx;
             first_bad_got = got_real;
             first_bad_expected = expected;
           }
-          ofm_idx++;
         }
+        ofm_idx++;
       }
-      // Errors in CIFAR-10 are quite large...
-      MY_ASSERT(
-          all_ok,
-          "Value error too large at index %d: got=%f, expected=%f" NEWLINE,
-          first_bad_idx, first_bad_got, first_bad_expected);
     }
 #endif
 
@@ -348,6 +349,16 @@ static void run_model(uint16_t* ansptr, const ParameterInfo** output_node_ptr) {
   }
 
   *ansptr = u_ans;
+
+#if DYNAMIC_DNN_APPROACH != DYNAMIC_DNN_FINE_GRAINED
+  if (inference_results_vm.sample_idx == 0) {
+    // Errors in CIFAR-10 are quite large...
+    MY_ASSERT(
+        all_ok,
+        "Value error too large at index %d: got=%f, expected=%f" NEWLINE,
+        first_bad_idx, first_bad_got, first_bad_expected);
+  }
+#endif
 #endif
 }
 
